@@ -1,0 +1,28 @@
+# Development Dependencies & Temporary Files
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+.vite/
+.vscode/
+*.tmp
+
+# Portable Local Python Runtime (bootstrapped by Setup_HammelArt.bat)
+python_runtime/
+.venv/
+
+# Personal User Data, Settings, Caches & Browser Profile (NEVER commit!)
+userdata/
+.cache/
+.webview_profile/
+roots_config.json
+ui_session.json
+desktop_window_state.json
+.hammelart/
+*.hm_tmp_*
+
+# Logs & OS Artifacts
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
