@@ -619,20 +619,17 @@ export default function WelcomeModal({
                 <div className="hm-update-notes-box">
                   {updateInfo?.patchNotes
                     ? updateInfo.patchNotes
-                    : updateInfo?.statusNote ||
-                      "Click “Check for Updates” to pull the latest release details and patch notes from GitHub."}
+                    : "No release notes loaded yet. Click “Check for Updates” or view releases on GitHub."}
                 </div>
               </div>
 
-              {updateInfo?.statusNote && (
-                <div className="hm-welcome-status is-info">{updateInfo.statusNote}</div>
-              )}
-
-              {updateActionResult?.message && (
+              {updateActionResult?.message ? (
                 <div className={`hm-welcome-status ${updateActionResult.ok ? "is-ok" : "is-err"}`}>
                   {updateActionResult.message}
                 </div>
-              )}
+              ) : updateInfo?.statusNote ? (
+                <div className="hm-welcome-status is-info">{updateInfo.statusNote}</div>
+              ) : null}
 
               <div className="hm-update-actions-row">
                 <button
