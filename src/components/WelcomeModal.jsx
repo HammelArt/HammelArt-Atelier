@@ -678,7 +678,7 @@ export default function WelcomeModal({
                   <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
                   <div className="hm-update-title-row">
                     <span className="hm-update-ver-pill">
-                      Installed: v{updateInfo?.currentVersion || "0.9.2-beta"}
+                      Installed: v{updateInfo?.currentVersion || "0.9.3-beta"}
                     </span>
                     <span className="hm-update-mode-pill">
                       {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}

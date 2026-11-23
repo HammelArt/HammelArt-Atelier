@@ -490,7 +490,7 @@ export default function FolderSidebar({
       hoverTimerRef.current = null;
     }
     if (mode !== "hover") setHoverOpen(false);
-    if (mode !== "static") setCreatingFolderRootId(null);
+    if (mode !== "static") setCreateTarget(null);
   }, [mode]);
 
   // Hover-Edge geometry tracker
