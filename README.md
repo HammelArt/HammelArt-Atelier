@@ -1,8 +1,8 @@
 # HammelArt Atelier
 
-> A tactile, high-craft dark-studio visual gallery, organizer, and showcase workbench for local image & video folders — running as a **standalone borderless Windows Desktop app** (Edge WebView2) or directly in your **Web Browser**, with zero external tool dependencies.
+A tactile, high-craft dark-studio visual gallery, organizer, and showcase workbench for local image & video folders — running as a **standalone borderless Windows Desktop app** (Edge WebView2) or directly in your **Web Browser**, with zero external tool dependencies.
 
-![HammelArt Atelier — Classic Workspace](docs/screenshots/01_classic_workspace.png)
+https://github.com/user-attachments/assets/15053f2b-abd0-4ba1-9c59-26252fe9682a
 
 ---
 
@@ -22,6 +22,8 @@
 
 ### 1. Classic Grid Explorer
 Structured high-speed masonry/grid browsing with instant `Ctrl + Wheel` density scaling, hover previews, quick multi-select (`Ctrl` / `Shift`), and hold-to-drag sorting into the folder tree.
+
+![HammelArt Atelier — Classic Workspace](docs/screenshots/01_classic_workspace.png)
 
 ### 2. Conveyor Streams
 Continuous multi-lane streaming belts (horizontal or vertical) with adjustable flow speed, curve bend, paired item alignment, Seam Split transitions, focus pause, and hover/click inspection.
