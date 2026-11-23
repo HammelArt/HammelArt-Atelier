@@ -7448,12 +7448,44 @@ button.hm-sb-count:hover {
    Top-bar Help Button, Welcome Onboarding Modal & Un-Blur Tour
    ================================================================ */
 .hm-help-btn {
+  position: relative;
   width: 30px;
   min-width: 30px;
   padding: 0 !important;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.hm-help-btn.has-update {
+  border-color: rgba(34, 197, 94, 0.55) !important;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.25);
+}
+
+.hm-update-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #22c55e;
+  border: 1.5px solid #0b0a14;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.95), 0 0 14px rgba(34, 197, 94, 0.65);
+  animation: hm-update-pulse 2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes hm-update-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.95), 0 0 14px rgba(34, 197, 94, 0.6);
+  }
+  50% {
+    transform: scale(1.16);
+    box-shadow: 0 0 12px rgba(74, 222, 128, 1), 0 0 20px rgba(34, 197, 94, 0.85);
+  }
 }
 
 .hm-welcome-backdrop {
@@ -7617,6 +7649,164 @@ button.hm-sb-count:hover {
   border-radius: 999px;
   background: #f59e0b;
   box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+}
+
+.hm-welcome-tab-dot.is-update {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.95);
+}
+
+.hm-update-status-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.hm-update-head-info {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.hm-update-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.hm-update-ver-pill,
+.hm-update-mode-pill,
+.hm-update-state-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e4e4f0;
+}
+
+.hm-update-mode-pill {
+  color: #c4b5fd;
+  border-color: rgba(168, 85, 247, 0.35);
+  background: rgba(168, 85, 247, 0.12);
+}
+
+.hm-update-state-pill.is-available {
+  color: #bbf7d0;
+  border-color: rgba(34, 197, 94, 0.55);
+  background: rgba(34, 197, 94, 0.16);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.2);
+}
+
+.hm-update-state-pill.is-current {
+  color: #a7f3d0;
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.1);
+}
+
+.hm-update-state-pill.is-muted {
+  color: #a1a1b5;
+}
+
+.hm-update-gh-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  color: #f4f4fa;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.hm-update-gh-link:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(192, 132, 252, 0.5);
+}
+
+.hm-update-notes-wrap {
+  border-radius: 13px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(10, 10, 18, 0.65);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.hm-update-notes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #c4b5fd;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.hm-update-pub-date {
+  font-weight: 500;
+  color: #9ca3af;
+}
+
+.hm-update-notes-box {
+  padding: 13px 15px;
+  max-height: 190px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #d4d4e4;
+  user-select: text;
+}
+
+.hm-update-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.hm-update-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.hm-update-btn.is-ready,
+.hm-update-btn.is-restart {
+  background: linear-gradient(135deg, #16a34a, #22c55e) !important;
+  border-color: rgba(74, 222, 128, 0.65) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.35);
+}
+
+.hm-spin {
+  animation: hm-spin-kf 0.9s linear infinite;
+}
+
+@keyframes hm-spin-kf {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .hm-welcome-body {

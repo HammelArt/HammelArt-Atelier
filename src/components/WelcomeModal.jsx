@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Download, ExternalLink, RefreshCw, RotateCw, Search } from "lucide-react";
 import { HAMMELART_CREST_PATH } from "../theme";
 
 const TABS = [
@@ -7,6 +7,7 @@ const TABS = [
   { id: "root", num: "02", label: "First Root Folder" },
   { id: "modes", num: "03", label: "Mode Overview" },
   { id: "shortcuts", num: "04", label: "Shortcuts & Controls" },
+  { id: "updates", num: "05", label: "Updates" },
 ];
 
 const SHORTCUT_GROUPS = [
@@ -139,6 +140,13 @@ export default function WelcomeModal({
   totalFolders = 0,
   welcomeDismissed = false,
   onToggleDismissed,
+  updateInfo = null,
+  checkingUpdates = false,
+  applyingUpdate = false,
+  updateActionResult = null,
+  onCheckUpdates,
+  onApplyUpdate,
+  onRestartApp,
   onRootApplied,
   onClose,
   onStartTour,
@@ -303,6 +311,7 @@ export default function WelcomeModal({
           {TABS.map((tab) => {
             const active = activeTab === tab.id;
             const needsRootWarn = tab.id === "root" && !activeRootPath;
+            const hasUpdateDot = tab.id === "updates" && Boolean(updateInfo?.updateAvailable);
             return (
               <button
                 key={tab.id}
@@ -310,12 +319,18 @@ export default function WelcomeModal({
                 role="tab"
                 aria-selected={active}
                 data-tab-id={tab.id}
-                className={`hm-welcome-tab ${active ? "is-active" : ""} ${needsRootWarn ? "is-warn" : ""}`}
+                className={`hm-welcome-tab ${active ? "is-active" : ""} ${needsRootWarn ? "is-warn" : ""} ${
+                  hasUpdateDot ? "is-update" : ""
+                }`}
                 onClick={() => setActiveTab(tab.id)}
               >
                 <span className="hm-welcome-tab-num">{tab.num}</span>
                 <span>{tab.label}</span>
-                {needsRootWarn ? <span className="hm-welcome-tab-dot" title="Folder setup needed" /> : null}
+                {hasUpdateDot ? (
+                  <span className="hm-welcome-tab-dot is-update" title="Update available" />
+                ) : needsRootWarn ? (
+                  <span className="hm-welcome-tab-dot" title="Folder setup needed" />
+                ) : null}
               </button>
             );
           })}
@@ -549,6 +564,126 @@ export default function WelcomeModal({
                     </section>
                   ))
                 )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "updates" && (
+            <div className="hm-welcome-pane" data-pane="updates">
+              <div className="hm-update-status-card">
+                <div className="hm-update-head-info">
+                  <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
+                  <div className="hm-update-title-row">
+                    <span className="hm-update-ver-pill">
+                      Installed: v{updateInfo?.currentVersion || "0.9.1-beta"}
+                    </span>
+                    <span className="hm-update-mode-pill">
+                      {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}
+                    </span>
+                    {updateInfo?.updateAvailable ? (
+                      <span className="hm-update-state-pill is-available">
+                        Update Available · v{updateInfo.latestVersion}
+                      </span>
+                    ) : updateInfo?.unreachable ? (
+                      <span className="hm-update-state-pill is-muted">Offline / Private Repo</span>
+                    ) : (
+                      <span className="hm-update-state-pill is-current">Up to Date ✓</span>
+                    )}
+                  </div>
+                </div>
+                <a
+                  className="hm-update-gh-link"
+                  href={updateInfo?.releaseUrl || "https://github.com/HammelArt/HammelArt-Atelier/releases"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open release page on GitHub"
+                >
+                  <span>Open on GitHub</span>
+                  <ExternalLink size={13} />
+                </a>
+              </div>
+
+              <div className="hm-update-notes-wrap">
+                <div className="hm-update-notes-head">
+                  <span>
+                    {updateInfo?.releaseName
+                      ? `Patch Notes · ${updateInfo.releaseName}`
+                      : "Release Patch Notes"}
+                  </span>
+                  {updateInfo?.publishedAt && (
+                    <span className="hm-update-pub-date">
+                      {new Date(updateInfo.publishedAt).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
+                <div className="hm-update-notes-box">
+                  {updateInfo?.patchNotes
+                    ? updateInfo.patchNotes
+                    : updateInfo?.statusNote ||
+                      "Click “Check for Updates” to pull the latest release details and patch notes from GitHub."}
+                </div>
+              </div>
+
+              {updateInfo?.statusNote && (
+                <div className="hm-welcome-status is-info">{updateInfo.statusNote}</div>
+              )}
+
+              {updateActionResult?.message && (
+                <div className={`hm-welcome-status ${updateActionResult.ok ? "is-ok" : "is-err"}`}>
+                  {updateActionResult.message}
+                </div>
+              )}
+
+              <div className="hm-update-actions-row">
+                <button
+                  type="button"
+                  className="hm-root-browse-btn hm-update-btn"
+                  onClick={onCheckUpdates}
+                  disabled={checkingUpdates || applyingUpdate}
+                >
+                  <RefreshCw size={14} className={checkingUpdates ? "hm-spin" : ""} />
+                  <span>{checkingUpdates ? "Checking…" : "Check for Updates"}</span>
+                </button>
+
+                {updateActionResult?.restartRequired && updateActionResult?.ok ? (
+                  <button
+                    type="button"
+                    className="hm-root-apply-btn hm-update-btn is-restart"
+                    onClick={onRestartApp}
+                    disabled={updateActionResult?.restarting}
+                  >
+                    <RotateCw size={14} className={updateActionResult?.restarting ? "hm-spin" : ""} />
+                    <span>{updateActionResult?.restarting ? "Restarting…" : "Restart Atelier"}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={`hm-root-apply-btn hm-update-btn ${
+                      updateInfo?.updateAvailable ? "is-ready" : ""
+                    }`}
+                    onClick={onApplyUpdate}
+                    disabled={applyingUpdate || checkingUpdates}
+                    title={
+                      updateInfo?.installMode === "git"
+                        ? "Runs safe git pull --ff-only while preserving your userdata/ folder"
+                        : "Downloads & extracts latest GitHub ZIP while preserving userdata/ & python_runtime/"
+                    }
+                  >
+                    <Download size={14} />
+                    <span>{applyingUpdate ? "Updating…" : "Run Update"}</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="hm-welcome-callout">
+                <div className="hm-callout-icon" aria-hidden="true">✦</div>
+                <div>
+                  <strong>Safe, non-destructive updates</strong>
+                  <p>
+                    Your <code>userdata/</code> folder (mounted roots, themes, taped trophies &amp; notes)
+                    stays untouched — works cleanly for both Git clones and Portable ZIP installs.
+                  </p>
+                </div>
               </div>
             </div>
           )}

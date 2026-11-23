@@ -101,10 +101,11 @@ Slice large libraries in milliseconds by media type, file extension (`PNG`, `JPG
 ## Quick Start (Windows)
 
 ### 1. Download or Clone
+- **Direct ZIP *(No Git required)*:** **[Download Latest Release ZIP](https://github.com/HammelArt/HammelArt-Atelier/archive/refs/heads/main.zip)** · or pick a tagged version on **[GitHub Releases](https://github.com/HammelArt/HammelArt-Atelier/releases)** and extract anywhere you like.
+- **Git Clone *(Best for 1-click updates)*:**
 ```bash
 git clone https://github.com/HammelArt/HammelArt-Atelier.git
 ```
-*(Or download and extract the release ZIP archive anywhere you like.)*
 
 ### 2. Launch (No Manual Python or Node Setup Needed)
 Double-click any launcher inside the app folder:
@@ -120,7 +121,8 @@ When the **Welcome Guide** appears on launch, switch to **02 First Root Folder**
 
 ## Safe Updates & Private Data (`userdata/`)
 
-Run **`Update_HammelArt.bat`** (or `git pull --ff-only`) inside the folder whenever updating to a newer release.
+- **In-App Updater (`?` → `05 Updates`):** Atelier checks GitHub quietly on launch. When a newer release drops, the **`?`** button in the top bar lights up with a glowing green dot (`Update available`) — clicking it opens **`05 Updates`** directly with the release patch notes, **Check for Updates**, **Open on GitHub**, **Run Update** (works safely for both Git clones and Portable ZIP installs), and **Restart Atelier**.
+- **Terminal / Batch Update:** You can also run **`Update_HammelArt.bat`** (or `git pull --ff-only`) inside the folder anytime.
 
 Everything personal is stored strictly inside the gitignored **`userdata/`** folder:
 - `userdata/roots_config.json` — Mounted media folders & active root

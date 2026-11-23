@@ -476,12 +476,20 @@ def _apply_win32_taskbar_relaunch(hwnd: int) -> bool:
 
 
 class _ServerThread(threading.Thread):
-    def __init__(self, media_dir: str | None, port: int, on_theme_change=None, on_fullscreen_toggle=None) -> None:
+    def __init__(
+        self,
+        media_dir: str | None,
+        port: int,
+        on_theme_change=None,
+        on_fullscreen_toggle=None,
+        on_restart=None,
+    ) -> None:
         super().__init__(daemon=True)
         self.media_dir = media_dir
         self.port = port
         self.on_theme_change = on_theme_change
         self.on_fullscreen_toggle = on_fullscreen_toggle
+        self.on_restart = on_restart
         self.ready = threading.Event()
         self.error: BaseException | None = None
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -502,6 +510,7 @@ class _ServerThread(threading.Thread):
             self.media_dir,
             on_theme_change=self.on_theme_change,
             on_fullscreen_toggle=self.on_fullscreen_toggle,
+            on_restart=self.on_restart,
         )
         runner = web.AppRunner(app, access_log=None)
         await runner.setup()
@@ -780,11 +789,34 @@ def main() -> None:
 
         return {"ok": True, "fullscreen": False, "already_fullscreen": False}
 
+    def _on_restart() -> None:
+        # Wait briefly in a detached helper so old WebView2 unlocks webview_profile cleanly
+        vbs_path = os.path.join(LAB_ROOT, "Launch_HammelArt_Desktop.vbs")
+        helper = (
+            "import subprocess, time, sys\n"
+            "time.sleep(1.5)\n"
+        )
+        if os.path.isfile(vbs_path):
+            helper += f"subprocess.Popen(['wscript.exe', {vbs_path!r}], cwd={LAB_ROOT!r})\n"
+        else:
+            helper += f"subprocess.Popen([sys.executable, {os.path.abspath(__file__)!r}], cwd={LAB_ROOT!r})\n"
+        cflags = 0x08000000 if sys.platform == "win32" else 0
+        subprocess.Popen([sys.executable, "-c", helper], cwd=LAB_ROOT, creationflags=cflags)
+        w = win_state.get("win")
+        if w is not None:
+            try:
+                w.destroy()
+            except Exception:
+                os._exit(0)
+        else:
+            os._exit(0)
+
     srv = _ServerThread(
         args.dir,
         port,
         on_theme_change=_on_theme_change,
         on_fullscreen_toggle=_on_fullscreen_toggle,
+        on_restart=_on_restart,
     )
     srv.start()
     ready_ok = srv.ready.wait(timeout=10.0)

@@ -50,6 +50,7 @@ SESSION_STATE_PATH = _user_data_path("ui_session.json")
 _SESSION_LOCK = threading.Lock()
 
 from backend.indexer import GalleryIndexer, SUPPORTED_EXTS  # noqa: E402
+from backend.updater import apply_update, check_updates  # noqa: E402
 
 
 class _LASTINPUTINFO(ctypes.Structure):
@@ -434,6 +435,7 @@ def create_app(
     output_dir: str | None = None,
     on_theme_change=None,
     on_fullscreen_toggle=None,
+    on_restart=None,
 ) -> web.Application:
     app = web.Application(
         middlewares=[_localhost_security_middleware],
@@ -1728,6 +1730,40 @@ def create_app(
     async def api_idle(request: web.Request) -> web.Response:
         idle_ms = get_windows_idle_ms()
         return web.json_response({"supported": idle_ms >= 0, "idle_ms": idle_ms})
+
+    @routes.get("/api/update/status")
+    async def api_update_status(request: web.Request) -> web.Response:
+        force = str(request.query.get("force", "")).lower() in ("1", "true", "yes")
+        res = await asyncio.to_thread(check_updates, LAB_ROOT, USERDATA_DIR, force)
+        return web.json_response(res)
+
+    @routes.post("/api/update/apply")
+    async def api_update_apply(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        zip_url = body.get("zipUrl") if isinstance(body, dict) else None
+        res = await asyncio.to_thread(apply_update, LAB_ROOT, USERDATA_DIR, zip_url)
+        return web.json_response(res)
+
+    @routes.post("/api/restart")
+    async def api_restart(request: web.Request) -> web.Response:
+        if on_restart is not None:
+            threading.Timer(0.18, on_restart).start()
+            return web.json_response({"ok": True, "mode": "desktop"})
+
+        port = request.url.port or 8191
+        script_py = os.path.abspath(__file__)
+        helper = (
+            "import subprocess, time, sys\n"
+            "time.sleep(1.2)\n"
+            f"subprocess.Popen([sys.executable, {script_py!r}, '--port', {str(port)!r}, '--open'], cwd={LAB_ROOT!r})\n"
+        )
+        cflags = 0x08000000 if sys.platform == "win32" else 0
+        subprocess.Popen([sys.executable, "-c", helper], cwd=LAB_ROOT, creationflags=cflags)
+        threading.Timer(0.25, lambda: os._exit(0)).start()
+        return web.json_response({"ok": True, "mode": "browser"})
 
     @routes.post("/api/desktop-fullscreen")
     async def api_desktop_fullscreen(request: web.Request) -> web.Response:

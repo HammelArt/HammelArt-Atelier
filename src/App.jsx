@@ -402,6 +402,68 @@ export default function App() {
   const [welcomeInitialTab, setWelcomeInitialTab] = useState("welcome");
   const [tourOpen, setTourOpen] = useState(false);
   const welcomeAutoCheckedRef = useRef(false);
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [applyingUpdate, setApplyingUpdate] = useState(false);
+  const [updateActionResult, setUpdateActionResult] = useState(null);
+
+  const checkForUpdates = useCallback(async (force = false) => {
+    setCheckingUpdates(true);
+    try {
+      const res = await fetch(`/api/update/status${force ? "?force=1" : ""}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.ok) {
+          setUpdateInfo(data);
+        }
+      }
+    } catch {} finally {
+      setCheckingUpdates(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      checkForUpdates(false);
+    }, 1400);
+    return () => clearTimeout(t);
+  }, [checkForUpdates]);
+
+  const handleRunUpdate = useCallback(async () => {
+    setApplyingUpdate(true);
+    setUpdateActionResult(null);
+    try {
+      const res = await fetch("/api/update/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ zipUrl: updateInfo?.zipUrl || null }),
+      });
+      const data = await res.json();
+      setUpdateActionResult(data);
+      if (data?.ok) {
+        await checkForUpdates(true);
+      }
+    } catch {
+      setUpdateActionResult({
+        ok: false,
+        message: "Failed to contact Atelier server while applying update.",
+      });
+    } finally {
+      setApplyingUpdate(false);
+    }
+  }, [updateInfo?.zipUrl, checkForUpdates]);
+
+  const handleRestartApp = useCallback(async () => {
+    try {
+      await fetch("/api/restart", { method: "POST" });
+      setUpdateActionResult((prev) => ({
+        ...(prev || {}),
+        ok: true,
+        restarting: true,
+        message: "Restarting HammelArt Atelier…",
+      }));
+    } catch {}
+  }, []);
   const [libraryRefreshing, setLibraryRefreshing] = useState(false);
   const refreshInFlightRef = useRef(false);
   const pendingSseRefreshRef = useRef(false);
@@ -3535,16 +3597,29 @@ export default function App() {
 
             <button
               type="button"
-              className={`hm-btn hm-help-btn ${welcomeOpen || tourOpen ? "active" : ""}`}
+              className={`hm-btn hm-help-btn ${welcomeOpen || tourOpen ? "active" : ""} ${
+                updateInfo?.updateAvailable ? "has-update" : ""
+              }`}
               onClick={() => {
                 setTourOpen(false);
-                setWelcomeInitialTab("welcome");
+                setWelcomeInitialTab(updateInfo?.updateAvailable ? "updates" : "welcome");
                 setWelcomeOpen(true);
               }}
-              title="Welcome Guide, First Root Folder & Un-Blur UI Tour"
-              aria-label="Open Welcome Guide & UI Tour"
+              title={
+                updateInfo?.updateAvailable
+                  ? `Update available (v${updateInfo.latestVersion}) — Click to view`
+                  : "Welcome Guide, First Root Folder & Un-Blur UI Tour"
+              }
+              aria-label={
+                updateInfo?.updateAvailable
+                  ? `Update available (v${updateInfo.latestVersion})`
+                  : "Open Welcome Guide & UI Tour"
+              }
             >
               <HelpCircle size={14} />
+              {updateInfo?.updateAvailable ? (
+                <span className="hm-update-dot" aria-hidden="true" />
+              ) : null}
             </button>
           </div>
         </div>
@@ -4037,6 +4112,13 @@ export default function App() {
         totalFolders={folders.length}
         welcomeDismissed={welcomeDismissed}
         onToggleDismissed={setWelcomeDismissed}
+        updateInfo={updateInfo}
+        checkingUpdates={checkingUpdates}
+        applyingUpdate={applyingUpdate}
+        updateActionResult={updateActionResult}
+        onCheckUpdates={() => checkForUpdates(true)}
+        onApplyUpdate={handleRunUpdate}
+        onRestartApp={handleRestartApp}
         onRootApplied={async () => {
           setFolderFilter("ALL");
           await refreshLibrary({ silent: true });
