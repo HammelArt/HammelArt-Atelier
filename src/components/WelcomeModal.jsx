@@ -2,6 +2,109 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Download, ExternalLink, RefreshCw, RotateCw, Search } from "lucide-react";
 import { HAMMELART_CREST_PATH } from "../theme";
 
+function renderInlineMarkdown(text) {
+  const parts = [];
+  const tokenRe = /(`[^`]+`|\*\*[^*]+\*\*|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g;
+  let last = 0;
+  let match;
+  let k = 0;
+  while ((match = tokenRe.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push(text.slice(last, match.index));
+    }
+    const tok = match[0];
+    if (tok.startsWith("`") && tok.endsWith("`")) {
+      parts.push(
+        <code key={`c_${k++}`} className="hm-md-code">
+          {tok.slice(1, -1)}
+        </code>
+      );
+    } else if (tok.startsWith("**") && tok.endsWith("**")) {
+      parts.push(
+        <strong key={`b_${k++}`} className="hm-md-strong">
+          {renderInlineMarkdown(tok.slice(2, -2))}
+        </strong>
+      );
+    } else if (tok.startsWith("[")) {
+      const lm = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(tok);
+      if (lm) {
+        parts.push(
+          <a
+            key={`a_${k++}`}
+            href={lm[2]}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="hm-md-link"
+          >
+            {lm[1]}
+          </a>
+        );
+      } else {
+        parts.push(tok);
+      }
+    }
+    last = match.index + tok.length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+function renderPatchNotesMarkdown(rawText) {
+  if (!rawText || typeof rawText !== "string") return null;
+  const lines = rawText.replace(/\r\n/g, "\n").split("\n");
+  const blocks = [];
+  let listBuf = [];
+  let k = 0;
+
+  const flushList = () => {
+    if (listBuf.length === 0) return;
+    blocks.push(
+      <ul key={`ul_${k++}`} className="hm-md-ul">
+        {listBuf.map((item, idx) => (
+          <li key={idx} className={`hm-md-li ${item.nested ? "is-nested" : ""}`}>
+            {renderInlineMarkdown(item.text)}
+          </li>
+        ))}
+      </ul>
+    );
+    listBuf = [];
+  };
+
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      flushList();
+      continue;
+    }
+    const headingMatch = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+    if (headingMatch) {
+      flushList();
+      blocks.push(
+        <h4 key={`h_${k++}`} className="hm-md-h">
+          {renderInlineMarkdown(headingMatch[2])}
+        </h4>
+      );
+      continue;
+    }
+    const bulletMatch = /^(\s*)[-*•]\s+(.+)$/.exec(rawLine);
+    if (bulletMatch) {
+      listBuf.push({
+        nested: bulletMatch[1].length >= 2,
+        text: bulletMatch[2].trim(),
+      });
+      continue;
+    }
+    flushList();
+    blocks.push(
+      <p key={`p_${k++}`} className="hm-md-p">
+        {renderInlineMarkdown(trimmed)}
+      </p>
+    );
+  }
+  flushList();
+  return blocks;
+}
+
 const TABS = [
   { id: "welcome", num: "01", label: "Welcome" },
   { id: "root", num: "02", label: "First Root Folder" },
@@ -618,8 +721,12 @@ export default function WelcomeModal({
                 </div>
                 <div className="hm-update-notes-box">
                   {updateInfo?.patchNotes
-                    ? updateInfo.patchNotes
-                    : "No release notes loaded yet. Click “Check for Updates” or view releases on GitHub."}
+                    ? renderPatchNotesMarkdown(updateInfo.patchNotes)
+                    : (
+                        <p className="hm-md-p is-empty">
+                          No release notes loaded yet. Click “Check for Updates” or view releases on GitHub.
+                        </p>
+                      )}
                 </div>
               </div>
 
