@@ -129,7 +129,18 @@ export default function InspectModal({
 
   const patchCfg = useCallback((patch) => {
     setCfg((prev) => {
-      const next = { ...prev, ...patch };
+      const next = {
+        ...prev,
+        ...patch,
+        ...(patch?.inspectorFields
+          ? {
+              inspectorFields: {
+                ...(prev.inspectorFields || {}),
+                ...patch.inspectorFields,
+              },
+            }
+          : {}),
+      };
       saveLightboxCfg(next);
       return next;
     });
@@ -1617,8 +1628,8 @@ export default function InspectModal({
               }}
               title={
                 curation?.isInPurgatory?.(activeItem)
-                  ? "Rescue from Purgatory (Del/X • Shift = Burn SSD)"
-                  : "Send to Purgatory (Del/X • Shift = Burn SSD)"
+                  ? "Rescue from Purgatory (Del/X • Shift = Delete)"
+                  : "Move to Purgatory (Del/X • Shift = Delete)"
               }
             >
               <Flame size={14} />

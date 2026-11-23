@@ -430,6 +430,48 @@ export function analyzeRootRemovalImpact(rootId, folderCombos = [], userWallPres
   return { exclusiveCombos, mixedCombos, affectedWallPresets };
 }
 
+const PERMA_PINS_KEY = "argon_cb_perma_pins_v1";
+
+export function permaPinBelongsToRoot(entry, rootId) {
+  if (!entry || !rootId) return false;
+  const itemRootId = entry.item?.root_id;
+  if (itemRootId) return itemRootId === rootId;
+  const k = typeof entry.key === "string" ? entry.key : "";
+  if (k.includes("::")) return k.startsWith(`${rootId}::`);
+  return rootId === "root_1";
+}
+
+export function getRootPermaPins(rootId) {
+  if (!rootId || typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(PERMA_PINS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry) => permaPinBelongsToRoot(entry, rootId));
+  } catch {
+    return [];
+  }
+}
+
+export function removeRootPermaPins(rootId) {
+  if (!rootId || typeof localStorage === "undefined") return 0;
+  try {
+    const raw = localStorage.getItem(PERMA_PINS_KEY);
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return 0;
+    const next = parsed.filter((entry) => !permaPinBelongsToRoot(entry, rootId));
+    if (next.length !== parsed.length) {
+      localStorage.setItem(PERMA_PINS_KEY, JSON.stringify(next));
+      return parsed.length - next.length;
+    }
+    return 0;
+  } catch {
+    return 0;
+  }
+}
+
 function cleanZoneNodeForRootRemoval(node, rootId, deletedComboIdsSet) {
   if (!node) return node;
   if (node.type === "zone") {

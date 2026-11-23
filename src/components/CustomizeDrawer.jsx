@@ -391,7 +391,7 @@ function StageThemeSection({
           <div className="hm-drawer-label-wrap">
             <span className="hm-drawer-label">Permanent Delete FX</span>
             <span className="hm-drawer-hint">
-              Plays on Shift+Del, Burn SSD &amp; Purgatory PURGE
+              Plays on Shift+Del, Radial Delete &amp; Purgatory PURGE
             </span>
           </div>
           <div className="hm-drawer-seg-row">

@@ -73,6 +73,24 @@ function clampCenter(x, y, hasSubmenus) {
   };
 }
 
+function resolveBubbleView(bubble, shiftHeld) {
+  if (!bubble) return null;
+  const shifted = Boolean(shiftHeld);
+  return {
+    label: (shifted && bubble.shiftLabel) || bubble.label,
+    hint: (shifted && bubble.shiftHint) || bubble.hint,
+    icon: (shifted && bubble.shiftIcon) || bubble.icon,
+    danger:
+      shifted && typeof bubble.shiftDanger === "boolean"
+        ? bubble.shiftDanger
+        : Boolean(bubble.danger),
+    active:
+      shifted && typeof bubble.shiftActive === "boolean"
+        ? bubble.shiftActive
+        : Boolean(bubble.active),
+  };
+}
+
 /**
  * Shared Elastic Floating Bubble Radial Menu supporting:
  * - Quick Right-Click -> stays open until item picked or dismissed
@@ -85,6 +103,7 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
   const [hoverArmed, setHoverArmed] = useState(false);
   const [openSubParentId, setOpenSubParentId] = useState(null);
   const [confirmId, setConfirmId] = useState(null);
+  const [shiftHeld, setShiftHeld] = useState(false);
   const [arcDraftVal, setArcDraftVal] = useState(null);
   const [arcDragging, setArcDragging] = useState(false);
   const [arcHovered, setArcHovered] = useState(false);
@@ -171,6 +190,7 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
     setHoverArmed(false);
     setOpenSubParentId(null);
     setConfirmId(null);
+    setShiftHeld(Boolean(menuState?.shiftHeld));
     holdActiveRef.current = Boolean(menuState?.fromPointerDown);
 
     if (!menuSessionId) return;
@@ -205,18 +225,19 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
   const triggerBubble = useCallback(
     (bubble, event) => {
       if (!bubble || bubble.disabled) return;
+      const effectiveShift = Boolean(event?.shiftKey || shiftHeld);
       if ((bubble.children && bubble.children.length > 0) || bubble.arcSlider) {
         setOpenSubParentId((prev) => (prev === bubble.id ? null : bubble.id));
         return;
       }
-      if (bubble.requiresConfirm && !event?.shiftKey && confirmId !== bubble.id) {
+      if (bubble.requiresConfirm && !effectiveShift && confirmId !== bubble.id) {
         setConfirmId(bubble.id);
         return;
       }
       onClose?.();
-      bubble.onSelect?.(event);
+      bubble.onSelect?.(effectiveShift && !event?.shiftKey ? { ...event, shiftKey: true } : event);
     },
-    [confirmId, onClose]
+    [confirmId, onClose, shiftHeld]
   );
 
   // Dismiss on Esc / outside left pointerdown + support Hold-Drag-Release on right mouseup
@@ -224,12 +245,23 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
     if (!menuState) return;
 
     const onKey = (e) => {
+      if (e.key === "Shift" || e.shiftKey) {
+        setShiftHeld(true);
+      }
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         onClose?.();
       }
     };
+
+    const onKeyUp = (e) => {
+      if (e.key === "Shift" || !e.shiftKey) {
+        setShiftHeld(false);
+      }
+    };
+
+    const onBlur = () => setShiftHeld(false);
 
     const onDown = (e) => {
       if (arcDragRef.current || performance.now() - justFinishedArcDragRef.current < 160) return;
@@ -263,24 +295,29 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
       const hitEl = stack.find((el) => el?.getAttribute?.("data-radial-id"));
       const hitId = hitEl?.getAttribute?.("data-radial-id");
       const hitBubble = hitId ? bubbleMap.get(hitId) : null;
+      const effectiveShift = Boolean(e?.shiftKey || shiftHeld);
       if (hitBubble && !hitBubble.disabled && !hitBubble.children?.length && !hitBubble.arcSlider) {
-        if (hitBubble.requiresConfirm && !e.shiftKey) {
+        if (hitBubble.requiresConfirm && !effectiveShift) {
           // Arm safety confirmation and keep menu open instead of accidentally trashing on drag-release
           setConfirmId(hitBubble.id);
           return;
         }
         onClose?.();
-        hitBubble.onSelect?.(e);
+        hitBubble.onSelect?.(effectiveShift && !e?.shiftKey ? { ...e, shiftKey: true } : e);
       } else {
         onClose?.();
       }
     };
 
     window.addEventListener("keydown", onKey, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("blur", onBlur);
     window.addEventListener("pointerdown", onDown, true);
     window.addEventListener("pointerup", onUp, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("blur", onBlur);
       window.removeEventListener("pointerdown", onDown, true);
       window.removeEventListener("pointerup", onUp, true);
     };
@@ -323,17 +360,19 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
       : null;
 
   const hoveredBubble = hoveredId ? bubbleMap.get(hoveredId) : null;
+  const hoveredView = resolveBubbleView(hoveredBubble, shiftHeld);
   const armedBubble = confirmId ? bubbleMap.get(confirmId) : null;
+  const centerIsDanger = Boolean(armedBubble || (hoveredView?.danger && shiftHeld));
   const centerCaption = armedBubble
-    ? armedBubble.confirmCaption || "Click again to Burn from SSD • Shift = instant"
+    ? armedBubble.confirmCaption || "Click again to Delete file • Shift = instant"
     : activeParent?.arcSlider && (arcDragging || arcHovered)
     ? activeParent.arcSlider.formatValue
       ? activeParent.arcSlider.formatValue(activeArcVal)
       : `${Math.round(activeArcVal * 100)}%`
     : hoveredBubble
     ? hoveredBubble.disabled
-      ? `${hoveredBubble.label} (Unavailable)`
-      : hoveredBubble.hint || hoveredBubble.label
+      ? `${hoveredView.label} (Unavailable)`
+      : hoveredView.hint || hoveredView.label
     : menuState?.title || "";
 
   const content = (
@@ -360,7 +399,7 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
 
             {/* Center Pivot & Subtle Hammelart Crest + Live Label Readout */}
             <motion.div
-              className={`hm-radial-center ${armedBubble ? "is-danger" : ""} ${
+              className={`hm-radial-center ${centerIsDanger ? "is-danger" : ""} ${
                 hoveredId ? "has-hover" : ""
               }`}
               initial={{ scale: 0.4, opacity: 0 }}
@@ -386,6 +425,7 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
               const isConfirm = confirmId === bubble.id;
               const isSubOpen = openSubParentId === bubble.id;
               const hasChildren = Boolean(bubble.children?.length || bubble.arcSlider);
+              const view = resolveBubbleView(bubble, shiftHeld);
 
               return (
                 <motion.button
@@ -393,8 +433,8 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
                   type="button"
                   data-radial-id={bubble.id}
                   disabled={bubble.disabled}
-                  className={`hm-radial-bubble ${bubble.active ? "active" : ""} ${
-                    bubble.danger || isConfirm ? "danger" : ""
+                  className={`hm-radial-bubble ${view.active ? "active" : ""} ${
+                    view.danger || isConfirm ? "danger" : ""
                   } ${isConfirm ? "is-armed" : ""} ${isSubOpen ? "sub-open" : ""} ${
                     hoveredId === bubble.id ? "is-hovered" : ""
                   } ${bubble.disabled ? "disabled" : ""}`}
@@ -435,13 +475,13 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
                     triggerBubble(bubble, e);
                   }}
                 >
-                  <span className="hm-radial-bubble-icon">{bubble.icon}</span>
+                  <span className="hm-radial-bubble-icon">{view.icon}</span>
                   <span className="hm-radial-bubble-lbl">
                     {isConfirm
                       ? "Confirm?"
                       : bubble.id === activeParent?.id && bubble.arcSlider?.bubbleLabel && activeArcVal != null
                       ? bubble.arcSlider.bubbleLabel(activeArcVal)
-                      : bubble.label}
+                      : view.label}
                     {hasChildren && <ChevronRight size={9} style={{ marginLeft: 1, opacity: 0.75 }} />}
                   </span>
                 </motion.button>
@@ -609,6 +649,7 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
                   const sAngle = activeParentAngle + offsetIdx * spread;
                   const sx = Math.cos(sAngle) * SUB_RADIUS;
                   const sy = Math.sin(sAngle) * SUB_RADIUS;
+                  const subView = resolveBubbleView(sub, shiftHeld);
 
                   return (
                     <motion.button
@@ -616,9 +657,9 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
                       type="button"
                       data-radial-id={sub.id}
                       disabled={sub.disabled}
-                      className={`hm-radial-bubble is-sub ${sub.active ? "active" : ""} ${
-                        hoveredId === sub.id ? "is-hovered" : ""
-                      } ${sub.disabled ? "disabled" : ""}`}
+                      className={`hm-radial-bubble is-sub ${subView.active ? "active" : ""} ${
+                        subView.danger ? "danger" : ""
+                      } ${hoveredId === sub.id ? "is-hovered" : ""} ${sub.disabled ? "disabled" : ""}`}
                       initial={{
                         x: Math.cos(activeParentAngle) * RING_RADIUS,
                         y: Math.sin(activeParentAngle) * RING_RADIUS,
@@ -653,8 +694,8 @@ export default function RadialMenu({ menuState, onClose, onRightClickSwitch }) {
                         triggerBubble(sub, e);
                       }}
                     >
-                      <span className="hm-radial-bubble-icon">{sub.icon}</span>
-                      <span className="hm-radial-bubble-lbl">{sub.label}</span>
+                      <span className="hm-radial-bubble-icon">{subView.icon}</span>
+                      <span className="hm-radial-bubble-lbl">{subView.label}</span>
                     </motion.button>
                   );
                 })}

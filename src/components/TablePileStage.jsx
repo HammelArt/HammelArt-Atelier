@@ -8,6 +8,8 @@ import {
   Shuffle,
   SkipBack,
   SkipForward,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { captureInspectPayload, getMediaUrl, getThumbnailUrl, itemKey } from "../utils/lightboxFlight";
 import { clamp, computePilePrintBox, createThrownBody, stepTablePile } from "../utils/tablePilePhysics";
@@ -202,6 +204,9 @@ export default function TablePileStage({
   lightboxOpen = false,
   screensaverMode = false,
   editing = false,
+  queuedPushItems = [],
+  queuedPushNonce = 0,
+  onConsumeQueuedPush,
   onInspect,
   onReshufflePlaylist,
   onPatchParams,
@@ -275,7 +280,115 @@ export default function TablePileStage({
   const [pinnedUids, setPinnedUids] = useState(() => new Set());
   const [permaUids, setPermaUids] = useState(() => new Set());
   const [pileRadial, setPileRadial] = useState(null);
+  const [deskAudioMuted, setDeskAudioMuted] = useState(false);
+  const [audioLiveUid, setAudioLiveUid] = useState(null);
   const decodeCacheRef = useRef(new Map());
+  const videoMapRef = useRef(new Map());
+  const hoverDwellTimerRef = useRef(null);
+  const audioFadeRafRef = useRef(0);
+  const hoveredCardUidRef = useRef(null);
+
+  const silenceAllTableVideos = useCallback(() => {
+    if (hoverDwellTimerRef.current) {
+      clearTimeout(hoverDwellTimerRef.current);
+      hoverDwellTimerRef.current = null;
+    }
+    if (audioFadeRafRef.current) {
+      cancelAnimationFrame(audioFadeRafRef.current);
+      audioFadeRafRef.current = 0;
+    }
+    setAudioLiveUid(null);
+    videoMapRef.current.forEach((vid) => {
+      if (!vid) return;
+      try {
+        vid.muted = true;
+        vid.volume = 0;
+      } catch {}
+    });
+  }, []);
+
+  const scheduleHoverAudio = useCallback(
+    (uid) => {
+      hoveredCardUidRef.current = uid;
+      if (hoverDwellTimerRef.current) {
+        clearTimeout(hoverDwellTimerRef.current);
+        hoverDwellTimerRef.current = null;
+      }
+      if (audioFadeRafRef.current) {
+        cancelAnimationFrame(audioFadeRafRef.current);
+        audioFadeRafRef.current = 0;
+      }
+      if (
+        screensaverMode ||
+        lightboxOpen ||
+        editing ||
+        deskAudioMuted ||
+        pileRadial ||
+        dragSessionRef.current
+      ) {
+        silenceAllTableVideos();
+        return;
+      }
+
+      hoverDwellTimerRef.current = setTimeout(() => {
+        hoverDwellTimerRef.current = null;
+        if (hoveredCardUidRef.current !== uid) return;
+        const vid = videoMapRef.current.get(uid);
+        if (!vid) return;
+
+        videoMapRef.current.forEach((other, otherUid) => {
+          if (other && otherUid !== uid) {
+            try {
+              other.muted = true;
+              other.volume = 0;
+            } catch {}
+          }
+        });
+
+        try {
+          setAudioLiveUid(uid);
+          vid.volume = 0;
+          vid.muted = false;
+          const p = vid.play?.();
+          if (p && typeof p.catch === "function") {
+            p.catch(() => {
+              // Ignore browser autoplay restrictions before user gesture
+              silenceAllTableVideos();
+            });
+          }
+          const startTs = performance.now();
+          const fadeIn = (now) => {
+            if (hoveredCardUidRef.current !== uid) {
+              audioFadeRafRef.current = 0;
+              return;
+            }
+            const t = clamp((now - startTs) / 240, 0, 1);
+            try {
+              vid.muted = false;
+              vid.volume = t;
+            } catch {}
+            if (t < 1) {
+              audioFadeRafRef.current = requestAnimationFrame(fadeIn);
+            } else {
+              audioFadeRafRef.current = 0;
+            }
+          };
+          audioFadeRafRef.current = requestAnimationFrame(fadeIn);
+        } catch {}
+      }, 300);
+    },
+    [screensaverMode, lightboxOpen, editing, deskAudioMuted, pileRadial, silenceAllTableVideos]
+  );
+
+  useEffect(() => {
+    if (screensaverMode || lightboxOpen || editing || deskAudioMuted || pileRadial) {
+      silenceAllTableVideos();
+    }
+  }, [screensaverMode, lightboxOpen, editing, deskAudioMuted, pileRadial, silenceAllTableVideos]);
+
+  useEffect(() => {
+    return () => silenceAllTableVideos();
+  }, [silenceAllTableVideos]);
 
   const persistPermaPins = useCallback(
     (wOverride, hOverride) => {
@@ -293,6 +406,7 @@ export default function TablePileStage({
             item: {
               filename: b.item.filename,
               subfolder: b.item.subfolder || "",
+              root_id: b.item.root_id || "",
               aspect_ratio: b.item.aspect_ratio,
               width: b.item.width,
               height: b.item.height,
@@ -324,6 +438,43 @@ export default function TablePileStage({
     }
   }, []);
 
+  const throwItemBody = useCallback(
+    (item, { playlistIdx = null, reverseBias = false } = {}) => {
+      if (!item) return;
+      const rect = stageRef.current?.getBoundingClientRect?.();
+      const liveW = rect && rect.width > 30 ? rect.width : stageSize.w;
+      const liveH = rect && rect.height > 30 ? rect.height : stageSize.h;
+      const uid = `pile_${uidCounterRef.current++}`;
+      const body = createThrownBody({
+        uid,
+        item,
+        stageW: liveW,
+        stageH: liveH,
+        params,
+        lastEdge: lastEdgeRef.current,
+        reverseBias,
+      });
+
+      lastEdgeRef.current = body.edge;
+      bodiesRef.current.push(body);
+      enforcePileDepth(pileDepth);
+
+      holdElapsedRef.current = 0;
+      if (playlistIdx !== null) {
+        curPlaylistIdxRef.current = playlistIdx;
+        setActiveIdxUi(playlistIdx);
+      }
+      setTopHaloItem(item);
+      const topLive = bodiesRef.current.filter((b) => !b.exiting).slice(-6);
+      setHiResUids(new Set(topLive.map((b) => b.uid)));
+      setRenderList((prev) => [
+        ...prev.filter((e) => bodiesRef.current.some((b) => b.uid === e.uid)),
+        { uid: body.uid, item: body.item, w: body.w, h: body.h, tapeSeed: body.tapeSeed },
+      ]);
+    },
+    [stageSize.w, stageSize.h, params, pileDepth, enforcePileDepth]
+  );
+
   const spawnSlideAt = useCallback(
     (idx, reverseBias = false) => {
       if (playlistLen === 0) return;
@@ -341,34 +492,9 @@ export default function TablePileStage({
       }
       const item = playlist[wrapped];
       if (!item) return;
-
-      const uid = `pile_${uidCounterRef.current++}`;
-      const body = createThrownBody({
-        uid,
-        item,
-        stageW: stageSize.w,
-        stageH: stageSize.h,
-        params,
-        lastEdge: lastEdgeRef.current,
-        reverseBias,
-      });
-
-      lastEdgeRef.current = body.edge;
-      bodiesRef.current.push(body);
-      enforcePileDepth(pileDepth);
-
-      holdElapsedRef.current = 0;
-      curPlaylistIdxRef.current = wrapped;
-      setActiveIdxUi(wrapped);
-      setTopHaloItem(item);
-      const topLive = bodiesRef.current.filter((b) => !b.exiting).slice(-6);
-      setHiResUids(new Set(topLive.map((b) => b.uid)));
-      setRenderList((prev) => [
-        ...prev.filter((e) => bodiesRef.current.some((b) => b.uid === e.uid)),
-        { uid: body.uid, item: body.item, w: body.w, h: body.h, tapeSeed: body.tapeSeed },
-      ]);
+      throwItemBody(item, { playlistIdx: wrapped, reverseBias });
     },
-    [playlist, playlistLen, stageSize.w, stageSize.h, params, pileDepth, enforcePileDepth]
+    [playlist, playlistLen, throwItemBody]
   );
 
   // Enforce pile depth immediately when user adjusts Pile Depth slider
@@ -482,6 +608,10 @@ export default function TablePileStage({
       }
     }
 
+    if (queuedPushItems && queuedPushItems.length > 0) {
+      seededPlaylistRef.current = playlist;
+      return;
+    }
     if (playlistLen === 0) return;
     if (seededPlaylistRef.current !== playlist) {
       seededPlaylistRef.current = playlist;
@@ -492,7 +622,65 @@ export default function TablePileStage({
         curPlaylistIdxRef.current = clamp(curPlaylistIdxRef.current, 0, playlistLen - 1);
       }
     }
-  }, [playlist, playlistLen, stageSize.w, stageSize.h, params.printScale, matPx, spawnSlideAt]);
+  }, [playlist, playlistLen, stageSize.w, stageSize.h, params.printScale, matPx, spawnSlideAt, queuedPushItems]);
+
+  // Consume manually pushed prints from Classic / Conveyor / Wall on arrival and auto-pause
+  const lastPushSigRef = useRef("");
+  const pushTimersRef = useRef([]);
+  useEffect(() => {
+    if (!stageMeasuredRef.current || screensaverMode) return;
+    if (!Array.isArray(queuedPushItems) || queuedPushItems.length === 0) return;
+    const sig = `${queuedPushNonce}:${queuedPushItems.map(itemKey).join("|")}`;
+    if (lastPushSigRef.current === sig) return;
+    lastPushSigRef.current = sig;
+
+    const batch = queuedPushItems.slice();
+    seededPlaylistRef.current = playlist;
+    setLocalPaused(true);
+    holdElapsedRef.current = 0;
+    onConsumeQueuedPush?.();
+
+    pushTimersRef.current.forEach((t) => clearTimeout(t));
+    pushTimersRef.current = [];
+
+    batch.forEach((it, idx) => {
+      const throwOne = () => {
+        if (!it) return;
+        const alreadyOnDesk = bodiesRef.current.some(
+          (b) => !b.exiting && itemKey(b.item) === itemKey(it)
+        );
+        if (!alreadyOnDesk) {
+          const foundIdx = playlist.findIndex((p) => itemKey(p) === itemKey(it));
+          throwItemBody(it, {
+            playlistIdx: foundIdx >= 0 ? foundIdx : null,
+            reverseBias: idx % 2 === 1,
+          });
+        }
+      };
+      if (idx === 0) {
+        throwOne();
+      } else {
+        const timer = setTimeout(throwOne, idx * 150);
+        pushTimersRef.current.push(timer);
+      }
+    });
+  }, [
+    queuedPushItems,
+    queuedPushNonce,
+    screensaverMode,
+    stageSize.w,
+    stageSize.h,
+    playlist,
+    throwItemBody,
+    onConsumeQueuedPush,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      pushTimersRef.current.forEach((t) => clearTimeout(t));
+      pushTimersRef.current = [];
+    };
+  }, []);
 
   const handleNext = useCallback(() => {
     if (playlistLen <= 1) return;
@@ -565,11 +753,11 @@ export default function TablePileStage({
       const L = latestRef.current;
       const bodies = bodiesRef.current;
 
-      const anyWind = bodies.some((b) => b.blownAway || b.windDelay > 0);
-      if ((!L.paused || anyWind) && bodies.length > 0) {
+      const anySettling = bodies.some((b) => b.blownAway || b.windDelay > 0 || !b.settled);
+      if ((!L.paused || anySettling) && bodies.length > 0) {
         const hadUnsettledPerma = bodies.some((b) => b.permaPinned && !b.settled);
         const stepSubset = L.paused
-          ? bodies.filter((b) => b.blownAway || b.windDelay > 0)
+          ? bodies.filter((b) => b.blownAway || b.windDelay > 0 || !b.settled)
           : bodies;
         const { removedAny } = stepTablePile(stepSubset, dt, {
           stageW: L.stageSize.w,
@@ -701,6 +889,10 @@ export default function TablePileStage({
         e.preventDefault();
         wakeHud();
         setLocalPaused((p) => !p);
+      } else if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        wakeHud();
+        setDeskAudioMuted((m) => !m);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -709,6 +901,7 @@ export default function TablePileStage({
 
   // Interactive Grab / Fling Physics vs Click-to-Inspect (Taped trophies stay locked in place, still clickable to inspect!)
   const handleCardPointerDown = (e, uid) => {
+    silenceAllTableVideos();
     if (e.button !== 0) return;
     const body = bodiesRef.current.find((b) => b.uid === uid);
     if (!body) return;
@@ -1288,6 +1481,20 @@ export default function TablePileStage({
               }`}
               data-lb-key={key}
               data-pile-uid={entry.uid}
+              onPointerEnter={() => {
+                if (isVideoItem(entry.item)) {
+                  scheduleHoverAudio(entry.uid);
+                } else {
+                  hoveredCardUidRef.current = null;
+                  silenceAllTableVideos();
+                }
+              }}
+              onPointerLeave={() => {
+                if (hoveredCardUidRef.current === entry.uid) {
+                  hoveredCardUidRef.current = null;
+                  silenceAllTableVideos();
+                }
+              }}
               onPointerDown={(e) => handleCardPointerDown(e, entry.uid)}
               onPointerMove={(e) => handleCardPointerMove(e, entry.uid)}
               onPointerUp={(e) => finishCardPointer(e, entry.uid, false)}
@@ -1312,15 +1519,26 @@ export default function TablePileStage({
               )}
               <div className="cb-pile-art-window">
                 {isVideoItem(entry.item) ? (
-                  <video
-                    src={getFullResUrl(entry.item)}
-                    poster={getThumbUrl(entry.item)}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    className="cb-slide-print-img"
-                  />
+                  <>
+                    <video
+                      ref={(el) => {
+                        if (el) videoMapRef.current.set(entry.uid, el);
+                        else videoMapRef.current.delete(entry.uid);
+                      }}
+                      src={getFullResUrl(entry.item)}
+                      poster={getThumbUrl(entry.item)}
+                      autoPlay
+                      muted={audioLiveUid !== entry.uid || deskAudioMuted}
+                      loop
+                      playsInline
+                      className="cb-slide-print-img"
+                    />
+                    {audioLiveUid === entry.uid && !deskAudioMuted && (
+                      <span className="cb-pile-audio-badge" title="Hover audio active (M to mute)">
+                        <Volume2 size={10} />
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <>
                     <img
@@ -1402,6 +1620,15 @@ export default function TablePileStage({
               <span className="cb-slide-hud-sep" />
             </>
           )}
+
+          <button
+            type="button"
+            className={`cb-slide-hud-btn ${deskAudioMuted ? "is-muted" : ""}`}
+            onClick={() => setDeskAudioMuted((m) => !m)}
+            title={deskAudioMuted ? "Unmute hover audio (M)" : "Mute hover audio (M)"}
+          >
+            {deskAudioMuted ? <VolumeX size={13} /> : <Volume2 size={13} />}
+          </button>
 
           <button
             type="button"

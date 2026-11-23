@@ -277,9 +277,77 @@ def _trace_conditioning_upstream(cond_link: Any, prompt: Dict[str, Any], is_nega
     return fn(node_id, prompt, set(), 0)
 
 
-def _find_active_sampler_node(prompt: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
+_EXT_RE = re.compile(r"\.(safetensors|ckpt|pt|pth|bin|gguf)$", re.IGNORECASE)
+
+
+def _asset_basename(raw: Any) -> str:
+    txt = str(raw or "").strip()
+    if not txt or txt.lower() in ("unknown", "none", "null"):
+        return ""
+    return os.path.basename(txt.replace("\\", "/"))
+
+
+def _clean_asset_name(raw: Any) -> str:
+    base = _asset_basename(raw)
+    if not base:
+        return "Unknown"
+    return _EXT_RE.sub("", base)
+
+
+def _format_num(val: Any, digits: int = 2) -> Any:
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return "Unknown"
+    rounded = round(float(val), digits)
+    return int(rounded) if rounded.is_integer() else rounded
+
+
+def _resolve_seed_val(val: Any, prompt: Dict[str, Any], depth: int = 0) -> str:
+    if depth > 6 or val is None:
+        return "Unknown"
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return str(int(val))
+    if isinstance(val, str):
+        txt = val.strip()
+        if txt and txt.lstrip("-").isdigit():
+            return txt
+        return "Unknown"
+    if isinstance(val, list) and len(val) >= 1:
+        src = prompt.get(str(val[0]))
+        if isinstance(src, dict):
+            s_in = src.get("inputs", {}) if isinstance(src.get("inputs"), dict) else {}
+            for k in ("noise_seed", "seed", "seed_a", "value", "val", "int", "number"):
+                if k in s_in:
+                    r = _resolve_seed_val(s_in[k], prompt, depth + 1)
+                    if r != "Unknown":
+                        return r
+    return "Unknown"
+
+
+def _resolve_scalar_num(val: Any, prompt: Dict[str, Any], depth: int = 0) -> Any:
+    if depth > 6 or val is None:
+        return "Unknown"
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        try:
+            return float(val.strip())
+        except Exception:
+            return "Unknown"
+    if isinstance(val, list) and len(val) >= 1:
+        src = prompt.get(str(val[0]))
+        if isinstance(src, dict):
+            s_in = src.get("inputs", {}) if isinstance(src.get("inputs"), dict) else {}
+            for k in ("value", "val", "number", "float", "int", "guidance", "denoise", "cfg", "steps", "shift"):
+                if k in s_in:
+                    r = _resolve_scalar_num(s_in[k], prompt, depth + 1)
+                    if r != "Unknown":
+                        return r
+    return "Unknown"
+
+
+def _find_active_decode_and_sampler(prompt: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[Tuple[str, Dict[str, Any]]]]:
     # 1. Trace backwards from SaveImage / ImageCurator / VideoCombine through Decode
-    for node_id, node in prompt.items():
+    for _, node in prompt.items():
         if not isinstance(node, dict):
             continue
         ctype = str(node.get("class_type", ""))
@@ -297,42 +365,253 @@ def _find_active_sampler_node(prompt: Dict[str, Any]) -> Optional[Tuple[str, Dic
                         s_id = str(samples_link[0])
                         s_node = prompt.get(s_id)
                         if isinstance(s_node, dict):
-                            return (s_id, s_node)
+                            return (dec_node, (s_id, s_node))
 
-    # 2. Fallback scan for any sampler node
+    # 2. Fallback scan for decode / sampler nodes
+    found_dec: Optional[Dict[str, Any]] = None
+    found_sampler: Optional[Tuple[str, Dict[str, Any]]] = None
     for node_id, node in prompt.items():
         if not isinstance(node, dict):
             continue
         ctype = str(node.get("class_type", ""))
-        if any(k in ctype for k in ("KSampler", "SamplerCustom", "ClownsharK", "SamplerER")):
-            return (node_id, node)
-    return None
+        if found_dec is None and "VAEDecode" in ctype:
+            found_dec = node
+        if found_sampler is None and any(k in ctype for k in ("KSampler", "SamplerCustom", "ClownsharK", "SamplerER")):
+            found_sampler = (node_id, node)
+    return (found_dec, found_sampler)
 
 
-def _resolve_seed_val(val: Any, p_dict: Dict[str, Any], depth: int = 0) -> Any:
-    if depth > 8 or val is None:
-        return "Unknown"
-    if isinstance(val, (int, float)):
-        return int(val)
-    if isinstance(val, str) and val.strip().isdigit():
-        return int(val.strip())
-    if isinstance(val, list) and len(val) >= 1:
-        src_node = p_dict.get(str(val[0]), {})
-        if isinstance(src_node, dict):
-            src_inputs = src_node.get("inputs", {})
-            if "payload" in src_inputs:
-                try:
-                    sp = json.loads(src_inputs["payload"]) if isinstance(src_inputs["payload"], str) else src_inputs["payload"]
-                    if isinstance(sp, dict) and "seed" in sp and isinstance(sp["seed"], (int, float)):
-                        return int(sp["seed"])
-                except Exception:
-                    pass
-            for sk in ("seed", "noise_seed", "seed_a", "value"):
-                if sk in src_inputs:
-                    res = _resolve_seed_val(src_inputs[sk], p_dict, depth + 1)
-                    if res != "Unknown":
-                        return res
-    return "Unknown"
+def _find_active_sampler_node(prompt: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
+    _, sampler_pair = _find_active_decode_and_sampler(prompt)
+    return sampler_pair
+
+
+def _append_lora_entry(out: List[Dict[str, Any]], raw_lora: Any, sm: float, sc: float) -> None:
+    base = _asset_basename(raw_lora)
+    if not base:
+        return
+    if sm == 0.0 and sc == 0.0:
+        return
+    out.append(
+        {
+            "name": _clean_asset_name(base),
+            "filename": base,
+            "strength": round(float(sm), 2),
+            "strength_clip": round(float(sc), 2),
+        }
+    )
+
+
+def _extract_loras_from_node(up_ctype: str, up_in: Dict[str, Any]) -> List[Dict[str, Any]]:
+    found: List[Dict[str, Any]] = []
+    # 1. HammelartLoraLoadout (mirrors solo -> active -> bypassed rules in lora_loadout.py)
+    if "LoraLoadout" in up_ctype:
+        try:
+            data = json.loads(up_in.get("payload", "{}")) if isinstance(up_in.get("payload"), str) else up_in.get("payload", {})
+            if isinstance(data, dict) and not data.get("bypassed", False):
+                lora_list = [x for x in (data.get("loras") or []) if isinstance(x, dict) and x.get("lora")]
+                has_solo = any(bool(item.get("solo", False)) for item in lora_list)
+                active_items = [
+                    item for item in lora_list
+                    if (bool(item.get("solo", False)) if has_solo else bool(item.get("active", True)))
+                ]
+                for item in active_items:
+                    sm = float(item.get("strength_model", item.get("strength", 1.0)))
+                    sc = float(item.get("strength_clip", item.get("strength", sm)))
+                    _append_lora_entry(found, item.get("lora"), sm, sc)
+        except Exception:
+            pass
+        return found
+
+    # 2. rgthree Power Lora Loader (inputs like lora_1: {"on": true, "lora": "...", "strength": 0.8})
+    rg_keys = [
+        k for k, v in up_in.items()
+        if isinstance(v, dict) and "lora" in v and ("on" in v or k.lower().startswith("lora"))
+    ]
+    if rg_keys:
+        for k in sorted(rg_keys, key=lambda x: [int(p) if p.isdigit() else p for p in re.split(r"(\d+)", x)]):
+            val = up_in[k]
+            if val.get("on", False) is True and val.get("lora"):
+                sm = float(val.get("strength", 1.0))
+                sc = float(val.get("strengthTwo", sm) if val.get("strengthTwo") is not None else sm)
+                _append_lora_entry(found, val.get("lora"), sm, sc)
+        return found
+
+    # 3. Standard ComfyUI LoraLoader / LoraLoaderModelOnly
+    if "lora_name" in up_in:
+        sm = float(up_in.get("strength_model", up_in.get("strength", 1.0)))
+        sc = float(up_in.get("strength_clip", sm))
+        _append_lora_entry(found, up_in.get("lora_name"), sm, sc)
+
+    return found
+
+
+def _trace_model_chain(start_link: Any, prompt: Dict[str, Any]) -> Tuple[str, List[Dict[str, Any]], Any]:
+    model_name = "Unknown"
+    loras_rev: List[Dict[str, Any]] = []
+    shift_val: Any = "Unknown"
+    visited: set = set()
+    curr_link = start_link
+
+    for _ in range(28):
+        if not (isinstance(curr_link, list) and len(curr_link) >= 1):
+            break
+        nid = str(curr_link[0])
+        if nid in visited:
+            break
+        visited.add(nid)
+
+        up_node = prompt.get(nid)
+        if not isinstance(up_node, dict):
+            break
+        up_ctype = str(up_node.get("class_type", ""))
+        up_in = up_node.get("inputs", {})
+        if not isinstance(up_in, dict):
+            break
+
+        node_loras = _extract_loras_from_node(up_ctype, up_in)
+        if node_loras:
+            # Keep node internal top-to-bottom order when reversing outer chain
+            loras_rev.extend(reversed(node_loras))
+
+        if shift_val == "Unknown" and "ModelSampling" in up_ctype and "shift" in up_in:
+            resolved_shift = _resolve_scalar_num(up_in.get("shift"), prompt)
+            if resolved_shift != "Unknown":
+                shift_val = _format_num(resolved_shift, 2)
+
+        if "ModelBatcher" in up_ctype:
+            try:
+                mb_data = json.loads(up_in.get("payload", "{}"))
+                act = [m["model"] for m in mb_data.get("batch_models", []) if m.get("active") and m.get("model")]
+                if act:
+                    model_name = act[0]
+            except Exception:
+                pass
+            break
+        if any(k in up_ctype for k in ("CheckpointLoader", "UNETLoader", "DiffusionModelLoader", "UnetLoaderGGUF")):
+            model_name = str(up_in.get("ckpt_name", up_in.get("unet_name", up_in.get("model_name", model_name))))
+            break
+
+        next_link = up_in.get("model") or up_in.get("model_1") or up_in.get("ckpt")
+        if next_link:
+            curr_link = next_link
+        else:
+            break
+
+    loras = list(reversed(loras_rev))
+    return model_name, loras, shift_val
+
+
+def _trace_vae_upstream(dec_node: Optional[Dict[str, Any]], prompt: Dict[str, Any]) -> Tuple[str, str]:
+    if not isinstance(dec_node, dict):
+        return "Unknown", "Unknown"
+    d_in = dec_node.get("inputs", {})
+    if not isinstance(d_in, dict):
+        return "Unknown", "Unknown"
+    curr_link = d_in.get("vae")
+    visited: set = set()
+    for _ in range(10):
+        if not (isinstance(curr_link, list) and len(curr_link) >= 1):
+            break
+        nid = str(curr_link[0])
+        if nid in visited:
+            break
+        visited.add(nid)
+        up = prompt.get(nid)
+        if not isinstance(up, dict):
+            break
+        ctype = str(up.get("class_type", ""))
+        u_in = up.get("inputs", {}) if isinstance(up.get("inputs"), dict) else {}
+        if "VAELoader" in ctype or "vae_name" in u_in:
+            raw = _asset_basename(u_in.get("vae_name"))
+            if raw:
+                return _clean_asset_name(raw), raw
+        if any(k in ctype for k in ("CheckpointLoader", "ModelBatcher")):
+            raw = _asset_basename(u_in.get("ckpt_name"))
+            if raw:
+                return f"{_clean_asset_name(raw)} (ckpt)", raw
+        curr_link = u_in.get("vae") or u_in.get("model")
+    return "Unknown", "Unknown"
+
+
+def _trace_clip_from_link(clip_link: Any, prompt: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+    curr = clip_link
+    visited: set = set()
+    for _ in range(16):
+        if not (isinstance(curr, list) and len(curr) >= 1):
+            break
+        nid = str(curr[0])
+        if nid in visited:
+            break
+        visited.add(nid)
+        up = prompt.get(nid)
+        if not isinstance(up, dict):
+            break
+        ctype = str(up.get("class_type", ""))
+        u_in = up.get("inputs", {}) if isinstance(up.get("inputs"), dict) else {}
+
+        names_raw: List[str] = []
+        for k in ("clip_name", "clip_name1", "clip_name2", "clip_name3", "clip_name4", "clip_1", "clip_2"):
+            if k in u_in and isinstance(u_in[k], str):
+                b = _asset_basename(u_in[k])
+                if b and b not in names_raw:
+                    names_raw.append(b)
+        if names_raw:
+            return [_clean_asset_name(n) for n in names_raw], names_raw
+
+        if "CheckpointLoader" in ctype:
+            raw = _asset_basename(u_in.get("ckpt_name"))
+            if raw:
+                return [f"{_clean_asset_name(raw)} (ckpt)"], [raw]
+            break
+
+        curr = u_in.get("clip") or u_in.get("clip_1")
+    return [], []
+
+
+def _trace_cond_extras(cond_link: Any, prompt: Dict[str, Any]) -> Tuple[Any, List[str], List[str]]:
+    """Traces guidance (e.g. FluxGuidance) and upstream CLIP filenames along the active conditioning branch."""
+    guidance_val: Any = "Unknown"
+    clips_short: List[str] = []
+    clips_raw: List[str] = []
+    queue = [cond_link]
+    visited: set = set()
+
+    for _ in range(18):
+        if not queue:
+            break
+        link = queue.pop(0)
+        if not (isinstance(link, list) and len(link) >= 1):
+            continue
+        nid = str(link[0])
+        if nid in visited:
+            continue
+        visited.add(nid)
+
+        node = prompt.get(nid)
+        if not isinstance(node, dict):
+            continue
+        ctype = str(node.get("class_type", ""))
+        n_in = node.get("inputs", {}) if isinstance(node.get("inputs"), dict) else {}
+
+        if guidance_val == "Unknown" and "guidance" in n_in:
+            gv = _resolve_scalar_num(n_in.get("guidance"), prompt)
+            if gv != "Unknown":
+                guidance_val = _format_num(gv, 2)
+
+        if not clips_short and "clip" in n_in:
+            cs, cr = _trace_clip_from_link(n_in.get("clip"), prompt)
+            if cs:
+                clips_short, clips_raw = cs, cr
+
+        for k in ("conditioning", "positive", "conditioning_1", "conditioning_2", "conditioning_from", "conditioning_to", "guider"):
+            if isinstance(n_in.get(k), list):
+                queue.append(n_in[k])
+
+        if guidance_val != "Unknown" and clips_short:
+            break
+
+    return guidance_val, clips_short, clips_raw
 
 
 def parse_comfy_graph(prompt: Any) -> Dict[str, Any]:
@@ -341,8 +620,17 @@ def parse_comfy_graph(prompt: Any) -> Dict[str, Any]:
     seed: Any = "Unknown"
     steps: Any = "Unknown"
     sampler: Any = "Unknown"
+    scheduler: Any = "Unknown"
     cfg: Any = "Unknown"
+    guidance: Any = "Unknown"
+    denoise: Any = "Unknown"
+    shift: Any = "Unknown"
     model_name = "Unknown"
+    vae_short = "Unknown"
+    vae_raw = "Unknown"
+    clips: List[str] = []
+    clips_raw: List[str] = []
+    loras: List[Dict[str, Any]] = []
 
     if isinstance(prompt, str):
         try:
@@ -357,24 +645,38 @@ def parse_comfy_graph(prompt: Any) -> Dict[str, Any]:
             "seed": "Unknown",
             "steps": "Unknown",
             "sampler": "Unknown",
+            "scheduler": "Unknown",
             "cfg": "Unknown",
+            "guidance": "Unknown",
+            "denoise": "Unknown",
+            "shift": "Unknown",
             "model": "Unknown",
+            "vae_short": "Unknown",
+            "vae_raw": "Unknown",
+            "clips": [],
+            "clips_raw": [],
+            "loras": [],
         }
 
-    active_sampler = _find_active_sampler_node(prompt)
+    dec_node, active_sampler = _find_active_decode_and_sampler(prompt)
+    vae_short, vae_raw = _trace_vae_upstream(dec_node, prompt)
+
     if active_sampler:
         _, s_node = active_sampler
         s_inputs = s_node.get("inputs", {}) if isinstance(s_node, dict) else {}
 
-        if "positive" in s_inputs:
-            pos_prompt = _trace_conditioning_upstream(s_inputs["positive"], prompt, False)
-        elif "guider" in s_inputs:
-            pos_prompt = _trace_conditioning_upstream(s_inputs["guider"], prompt, False)
-
-        if "negative" in s_inputs:
-            neg_prompt = _trace_conditioning_upstream(s_inputs["negative"], prompt, True)
-        elif "guider" in s_inputs:
-            neg_prompt = _trace_conditioning_upstream(s_inputs["guider"], prompt, True)
+        pos_wire = s_inputs.get("positive") if "positive" in s_inputs else s_inputs.get("guider")
+        neg_wire = s_inputs.get("negative") if "negative" in s_inputs else s_inputs.get("guider")
+        if pos_wire:
+            pos_prompt = _trace_conditioning_upstream(pos_wire, prompt, False)
+            guidance, clips, clips_raw = _trace_cond_extras(pos_wire, prompt)
+        if neg_wire:
+            neg_prompt = _trace_conditioning_upstream(neg_wire, prompt, True)
+            if not clips:
+                g2, cs2, cr2 = _trace_cond_extras(neg_wire, prompt)
+                if guidance == "Unknown":
+                    guidance = g2
+                clips, clips_raw = cs2, cr2
 
         s_val = s_inputs.get("seed", s_inputs.get("noise_seed", s_inputs.get("seed_a")))
         seed = _resolve_seed_val(s_val, prompt)
@@ -388,31 +690,53 @@ def parse_comfy_graph(prompt: Any) -> Dict[str, Any]:
                         if seed != "Unknown":
                             break
 
+        sched_node = None
+        sig_link = s_inputs.get("sigmas")
+        for _ in range(5):
+            if not (isinstance(sig_link, list) and len(sig_link) >= 1):
+                break
+            cand = prompt.get(str(sig_link[0]), {})
+            if not isinstance(cand, dict):
+                break
+            c_in = cand.get("inputs", {}) if isinstance(cand.get("inputs"), dict) else {}
+            if "scheduler" in c_in or "steps" in c_in or "denoise" in c_in:
+                sched_node = cand
+                break
+            sig_link = c_in.get("sigmas")
+
         if "steps" in s_inputs:
-            st_val = s_inputs["steps"]
-            if isinstance(st_val, (int, float)):
-                steps = int(st_val)
-            elif isinstance(st_val, list) and len(st_val) >= 1:
-                src_node = prompt.get(str(st_val[0]), {})
-                if isinstance(src_node, dict):
-                    steps = src_node.get("inputs", {}).get("value", steps)
-        elif "sigmas" in s_inputs and isinstance(s_inputs["sigmas"], list) and len(s_inputs["sigmas"]) >= 1:
-            sched_node = prompt.get(str(s_inputs["sigmas"][0]), {})
-            if isinstance(sched_node, dict):
-                st = sched_node.get("inputs", {}).get("steps")
-                if isinstance(st, (int, float)):
-                    steps = int(st)
+            st_num = _resolve_scalar_num(s_inputs["steps"], prompt)
+            if st_num != "Unknown":
+                steps = int(st_num)
+        elif sched_node:
+            st_num = _resolve_scalar_num(sched_node.get("inputs", {}).get("steps"), prompt)
+            if st_num != "Unknown":
+                steps = int(st_num)
+
+        if "scheduler" in s_inputs and isinstance(s_inputs["scheduler"], str) and s_inputs["scheduler"]:
+            scheduler = s_inputs["scheduler"]
+        elif sched_node:
+            sc_val = sched_node.get("inputs", {}).get("scheduler")
+            if isinstance(sc_val, str) and sc_val:
+                scheduler = sc_val
+
+        d_raw = s_inputs.get("denoise")
+        if d_raw is None and sched_node:
+            d_raw = sched_node.get("inputs", {}).get("denoise")
+        d_num = _resolve_scalar_num(d_raw, prompt)
+        if d_num != "Unknown":
+            denoise = _format_num(d_num, 2)
 
         if "cfg" in s_inputs:
-            c_val = s_inputs["cfg"]
-            if isinstance(c_val, (int, float)):
-                cfg = round(float(c_val), 1)
+            c_num = _resolve_scalar_num(s_inputs["cfg"], prompt)
+            if c_num != "Unknown":
+                cfg = round(float(c_num), 1)
         elif "guider" in s_inputs and isinstance(s_inputs["guider"], list) and len(s_inputs["guider"]) >= 1:
             g_node = prompt.get(str(s_inputs["guider"][0]), {})
             if isinstance(g_node, dict):
-                c_val = g_node.get("inputs", {}).get("cfg")
-                if isinstance(c_val, (int, float)):
-                    cfg = round(float(c_val), 1)
+                c_num = _resolve_scalar_num(g_node.get("inputs", {}).get("cfg"), prompt)
+                if c_num != "Unknown":
+                    cfg = round(float(c_num), 1)
 
         if "sampler_name" in s_inputs and isinstance(s_inputs["sampler_name"], str):
             sampler = s_inputs["sampler_name"]
@@ -422,41 +746,15 @@ def parse_comfy_graph(prompt: Any) -> Dict[str, Any]:
                 s_name = samp_node.get("inputs", {}).get("sampler_name")
                 sampler = s_name if (isinstance(s_name, str) and s_name) else str(samp_node.get("class_type", sampler))
 
-        # Trace model upstream
+        # Trace model, active LoRAs & sampling shift upstream
         model_wire = s_inputs.get("model")
         if not model_wire and "guider" in s_inputs and isinstance(s_inputs["guider"], list) and len(s_inputs["guider"]) >= 1:
             g_node = prompt.get(str(s_inputs["guider"][0]), {})
             if isinstance(g_node, dict):
                 model_wire = g_node.get("inputs", {}).get("model")
 
-        curr_link = model_wire
-        for _ in range(10):
-            if isinstance(curr_link, list) and len(curr_link) >= 1:
-                up_node = prompt.get(str(curr_link[0]))
-                if not isinstance(up_node, dict):
-                    break
-                up_ctype = str(up_node.get("class_type", ""))
-                up_in = up_node.get("inputs", {})
-                if not isinstance(up_in, dict):
-                    break
-                if "ModelBatcher" in up_ctype:
-                    try:
-                        mb_data = json.loads(up_in.get("payload", "{}"))
-                        act = [m["model"] for m in mb_data.get("batch_models", []) if m.get("active") and m.get("model")]
-                        if act:
-                            model_name = act[0]
-                    except Exception:
-                        pass
-                    break
-                elif any(k in up_ctype for k in ("CheckpointLoader", "UNETLoader", "DiffusionModelLoader")):
-                    model_name = str(up_in.get("ckpt_name", up_in.get("unet_name", up_in.get("model_name", model_name))))
-                    break
-                elif "model" in up_in:
-                    curr_link = up_in["model"]
-                else:
-                    break
-            else:
-                break
+        if model_wire:
+            model_name, loras, shift = _trace_model_chain(model_wire, prompt)
 
     # Fallbacks for any missing fields
     if not pos_prompt:
@@ -509,20 +807,49 @@ def parse_comfy_graph(prompt: Any) -> Dict[str, Any]:
         "seed": seed,
         "steps": steps,
         "sampler": sampler,
+        "scheduler": scheduler,
         "cfg": cfg,
+        "guidance": guidance,
+        "denoise": denoise,
+        "shift": shift,
         "model": model_name,
+        "vae_short": vae_short,
+        "vae_raw": vae_raw,
+        "clips": clips,
+        "clips_raw": clips_raw,
+        "loras": loras,
     }
 
 
-def parse_a1111_string(text: str) -> Dict[str, str]:
-    res = {
+def _extract_inline_lora_tags(text: str) -> List[Dict[str, Any]]:
+    found: List[Dict[str, Any]] = []
+    if not text:
+        return found
+    for m in re.finditer(r"<lora:([^:>]+):([-+]?[\d.]+)(?::([-+]?[\d.]+))?>", text, re.IGNORECASE):
+        raw = m.group(1).strip()
+        try:
+            sm = float(m.group(2))
+            sc = float(m.group(3)) if m.group(3) is not None else sm
+        except Exception:
+            continue
+        _append_lora_entry(found, raw, sm, sc)
+    return found
+
+
+def parse_a1111_string(text: str) -> Dict[str, Any]:
+    res: Dict[str, Any] = {
         "positive": "",
         "negative": "",
         "model": "Unknown",
         "steps": "Unknown",
         "sampler": "Unknown",
+        "scheduler": "Unknown",
         "cfg": "Unknown",
+        "denoise": "Unknown",
         "seed": "Unknown",
+        "vae_short": "Unknown",
+        "vae_raw": "Unknown",
+        "loras": [],
     }
     if not text or not isinstance(text, str):
         return res
@@ -549,17 +876,25 @@ def parse_a1111_string(text: str) -> Dict[str, str]:
             res["positive"] = rest.strip()
             param_line = ""
 
+    if res["positive"]:
+        res["loras"] = _extract_inline_lora_tags(res["positive"])
+
     if param_line:
         for pat, key in [
             (r"(?i)Steps:\s*(\d+)", "steps"),
             (r"(?i)Sampler:\s*([^,\n]+)", "sampler"),
+            (r"(?i)Schedule type:\s*([^,\n]+)", "scheduler"),
             (r"(?i)CFG scale:\s*([\d.]+)", "cfg"),
+            (r"(?i)Denoising strength:\s*([\d.]+)", "denoise"),
             (r"(?i)Seed:\s*(\d+)", "seed"),
             (r"(?i)Model:\s*([^,\n]+)", "model"),
+            (r"(?i)VAE:\s*([^,\n]+)", "vae_raw"),
         ]:
             m = re.search(pat, param_line)
             if m:
                 res[key] = m.group(1).strip()
+        if res["vae_raw"] != "Unknown":
+            res["vae_short"] = _clean_asset_name(res["vae_raw"])
 
     return res
 
@@ -581,12 +916,54 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
     negative_prompt = ""
     seed = "Unknown"
     sampler = "Unknown"
+    scheduler = "Unknown"
     steps = "Unknown"
     cfg = "Unknown"
+    guidance = "Unknown"
+    denoise = "Unknown"
+    shift = "Unknown"
     model_name = "Unknown"
+    vae_short = "Unknown"
+    vae_raw = "Unknown"
+    clips: List[str] = []
+    clips_raw: List[str] = []
+    loras: List[Dict[str, Any]] = []
     workflow: Dict[str, Any] = {}
     prompt_dict: Dict[str, Any] = {}
     extra_tags_str = ""
+
+    def _merge_graph_meta(g_meta: Dict[str, Any]) -> None:
+        nonlocal raw_prompt, negative_prompt, seed, sampler, scheduler, steps, cfg, guidance, denoise, shift, model_name, vae_short, vae_raw, clips, clips_raw, loras
+        if not raw_prompt and g_meta.get("positive"):
+            raw_prompt = g_meta["positive"]
+        if not negative_prompt and g_meta.get("negative"):
+            negative_prompt = g_meta["negative"]
+        if seed == "Unknown" and g_meta.get("seed", "Unknown") != "Unknown":
+            seed = str(g_meta["seed"])
+        if sampler == "Unknown" and g_meta.get("sampler", "Unknown") != "Unknown":
+            sampler = str(g_meta["sampler"])
+        if scheduler == "Unknown" and g_meta.get("scheduler", "Unknown") != "Unknown":
+            scheduler = str(g_meta["scheduler"])
+        if steps == "Unknown" and g_meta.get("steps", "Unknown") != "Unknown":
+            steps = str(g_meta["steps"])
+        if cfg == "Unknown" and g_meta.get("cfg", "Unknown") != "Unknown":
+            cfg = str(g_meta["cfg"])
+        if guidance == "Unknown" and g_meta.get("guidance", "Unknown") != "Unknown":
+            guidance = str(g_meta["guidance"])
+        if denoise == "Unknown" and g_meta.get("denoise", "Unknown") != "Unknown":
+            denoise = str(g_meta["denoise"])
+        if shift == "Unknown" and g_meta.get("shift", "Unknown") != "Unknown":
+            shift = str(g_meta["shift"])
+        if model_name == "Unknown" and g_meta.get("model", "Unknown") != "Unknown":
+            model_name = str(g_meta["model"])
+        if vae_short == "Unknown" and g_meta.get("vae_short", "Unknown") != "Unknown":
+            vae_short = str(g_meta["vae_short"])
+            vae_raw = str(g_meta.get("vae_raw", vae_short))
+        if not clips and g_meta.get("clips"):
+            clips = list(g_meta["clips"])
+            clips_raw = list(g_meta.get("clips_raw") or clips)
+        if not loras and g_meta.get("loras"):
+            loras = list(g_meta["loras"])
 
     if is_video:
         try:
@@ -615,7 +992,6 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
                 duration_sec = round(float(fmt["duration"]), 2)
 
             tags_obj = fmt.get("tags", {}) or {}
-            # Case-insensitive lookup for prompt & workflow in container tags
             for k, v in tags_obj.items():
                 kl = k.lower()
                 if kl == "workflow" and isinstance(v, str):
@@ -637,7 +1013,6 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
         except Exception:
             pass
 
-        # Fallback to OpenCV (cv2.VideoCapture) when ffprobe is unavailable or incomplete
         if width == 0 or height == 0 or duration_sec == 0.0:
             cap = None
             try:
@@ -664,14 +1039,7 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
                         pass
 
         if prompt_dict:
-            g_meta = parse_comfy_graph(prompt_dict)
-            raw_prompt = g_meta["positive"] or raw_prompt
-            negative_prompt = g_meta["negative"] or negative_prompt
-            seed = str(g_meta["seed"])
-            sampler = str(g_meta["sampler"])
-            steps = str(g_meta["steps"])
-            cfg = str(g_meta["cfg"])
-            model_name = str(g_meta["model"])
+            _merge_graph_meta(parse_comfy_graph(prompt_dict))
 
         if model_name == "Unknown":
             model_name = "Video Render"
@@ -694,6 +1062,8 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
                         seed = str(info[f"{prefix}seed"])
                     if info.get(f"{prefix}sampler") and sampler == "Unknown":
                         sampler = str(info[f"{prefix}sampler"])
+                    if info.get(f"{prefix}scheduler") and scheduler == "Unknown":
+                        scheduler = str(info[f"{prefix}scheduler"])
                     if info.get(f"{prefix}steps") and steps == "Unknown":
                         steps = str(info[f"{prefix}steps"])
                     if info.get(f"{prefix}cfg") and cfg == "Unknown":
@@ -708,21 +1078,7 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
                     or ""
                 )
                 if param_str and isinstance(param_str, str):
-                    a_meta = parse_a1111_string(param_str)
-                    if not raw_prompt and a_meta["positive"]:
-                        raw_prompt = a_meta["positive"]
-                    if not negative_prompt and a_meta["negative"]:
-                        negative_prompt = a_meta["negative"]
-                    if seed == "Unknown" and a_meta["seed"] != "Unknown":
-                        seed = a_meta["seed"]
-                    if sampler == "Unknown" and a_meta["sampler"] != "Unknown":
-                        sampler = a_meta["sampler"]
-                    if steps == "Unknown" and a_meta["steps"] != "Unknown":
-                        steps = a_meta["steps"]
-                    if cfg == "Unknown" and a_meta["cfg"] != "Unknown":
-                        cfg = a_meta["cfg"]
-                    if model_name == "Unknown" and a_meta["model"] != "Unknown":
-                        model_name = a_meta["model"]
+                    _merge_graph_meta(parse_a1111_string(param_str))
 
                 # 3. ComfyUI workflow & prompt JSON chunks
                 if "workflow" in info:
@@ -738,25 +1094,14 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
                         prompt_dict = {}
 
                 if prompt_dict:
-                    g_meta = parse_comfy_graph(prompt_dict)
-                    if not raw_prompt and g_meta["positive"]:
-                        raw_prompt = g_meta["positive"]
-                    if not negative_prompt and g_meta["negative"]:
-                        negative_prompt = g_meta["negative"]
-                    if seed == "Unknown" and g_meta["seed"] != "Unknown":
-                        seed = str(g_meta["seed"])
-                    if sampler == "Unknown" and g_meta["sampler"] != "Unknown":
-                        sampler = str(g_meta["sampler"])
-                    if steps == "Unknown" and g_meta["steps"] != "Unknown":
-                        steps = str(g_meta["steps"])
-                    if cfg == "Unknown" and g_meta["cfg"] != "Unknown":
-                        cfg = str(g_meta["cfg"])
-                    if model_name == "Unknown" and g_meta["model"] != "Unknown":
-                        model_name = str(g_meta["model"])
+                    _merge_graph_meta(parse_comfy_graph(prompt_dict))
         except Exception as exc:
             print(f"[HammelArt Atelier] Metadata read warning on {os.path.basename(file_path)}: {exc}")
 
-    # Aspect bucket calculation
+    # Fallback: extract any <lora:...> tags inline from raw_prompt if graph didn't supply LoRAs
+    if not loras and raw_prompt:
+        loras = _extract_inline_lora_tags(raw_prompt)
+
     aspect_bucket = "square"
     aspect_ratio_val = 1.0
     if width > 0 and height > 0:
@@ -770,13 +1115,10 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
     tags = extract_tags_from_text(raw_prompt, extra_tags_str)
     has_workflow = bool(workflow and isinstance(workflow, dict) and len(workflow) > 0)
 
-    short_model = os.path.basename(model_name.replace("\\", "/")) if model_name and model_name != "Unknown" else model_name
-    if short_model.endswith(".safetensors"):
-        short_model = short_model[:-12]
-    elif short_model.endswith(".ckpt"):
-        short_model = short_model[:-5]
+    short_model = _clean_asset_name(model_name)
 
     return {
+        "meta_version": 2,
         "width": width,
         "height": height,
         "resolution": f"{width}x{height}" if (width and height) else "Unknown",
@@ -792,8 +1134,17 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
         "dialect": dialect,
         "seed": str(seed),
         "sampler": str(sampler),
+        "scheduler": str(scheduler),
         "steps": str(steps),
         "cfg": str(cfg),
+        "guidance": str(guidance),
+        "denoise": str(denoise),
+        "shift": str(shift),
+        "vae_short": str(vae_short),
+        "vae_raw": str(vae_raw),
+        "clips": clips,
+        "clips_raw": clips_raw,
+        "loras": loras,
         "raw_prompt": raw_prompt,
         "negative_prompt": negative_prompt,
         "tags": tags,

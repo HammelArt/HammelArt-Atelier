@@ -342,8 +342,10 @@ export function buildTileRadialItems({
   comfyOnline,
   inPurgatoryView = false,
   batchCount = 1,
+  queuedTableCount = 0,
   onOpenNote,
   onDuplicateItem,
+  onPushToTablePile,
   onSendToPurgatory,
   onRescueFromPurgatory,
   onBurnItem,
@@ -408,6 +410,27 @@ export function buildTileRadialItems({
             icon: <RotateCcw size={16} />,
             onSelect: () => onRescueFromPurgatory?.(item),
           },
+          {
+            id: "tile-burn",
+            label: batchCount > 1 ? `Del ×${batchCount}` : "Delete",
+            hint:
+              batchCount > 1
+                ? `Permanently delete ${batchCount} selected files from disk (Hold Shift = instant)`
+                : "Permanently delete file from disk (Hold Shift = instant)",
+            shiftLabel: batchCount > 1 ? `Del ×${batchCount}!` : "Del Now!",
+            shiftHint:
+              batchCount > 1
+                ? `Shift held: permanently Delete ${batchCount} files from disk immediately!`
+                : "Shift held: permanently Delete file from disk immediately!",
+            danger: true,
+            requiresConfirm: true,
+            confirmCaption:
+              batchCount > 1
+                ? `Click again to Delete ${batchCount} files • Shift = instant`
+                : "Click again to Delete file • Shift = instant",
+            icon: <Trash2 size={16} />,
+            onSelect: () => onBurnItem?.(item),
+          },
         ]
       : [
           {
@@ -415,29 +438,45 @@ export function buildTileRadialItems({
             label: batchCount > 1 ? `Purg ×${batchCount}` : "Purgatory",
             hint:
               batchCount > 1
-                ? `Beam ${batchCount} selected prints to Purgatory (Shift = Burn SSD)`
-                : "Beam to Purgatory (Shift = Burn SSD)",
+                ? `Move ${batchCount} selected prints to Purgatory (Hold Shift = Delete)`
+                : "Move to Purgatory (Hold Shift = Delete)",
+            shiftLabel: batchCount > 1 ? `Del ×${batchCount}!` : "Del Now!",
+            shiftHint:
+              batchCount > 1
+                ? `Release to permanently Delete ${batchCount} selected files from disk!`
+                : "Release to permanently Delete file from disk!",
+            shiftIcon: <Trash2 size={16} />,
+            shiftDanger: true,
             icon: <Flame size={16} />,
             onSelect: (ev) =>
               ev?.shiftKey ? onBurnItem?.(item) : onSendToPurgatory?.(item),
           },
         ]),
-    {
-      id: "tile-burn",
-      label: batchCount > 1 ? `Burn ×${batchCount}` : "Burn SSD",
-      hint:
-        batchCount > 1
-          ? `Permanently erase ${batchCount} selected files from drive (Shift = instant)`
-          : "Permanently erase from drive (Shift = instant)",
-      danger: true,
-      requiresConfirm: true,
-      confirmCaption:
-        batchCount > 1
-          ? `Click again to Burn ${batchCount} from SSD • Shift = instant`
-          : "Click again to Burn from SSD • Shift = instant",
-      icon: <Trash2 size={16} />,
-      onSelect: () => onBurnItem?.(item),
-    },
+    ...(!isPurg && onPushToTablePile
+      ? [
+          {
+            id: "tile-table-pile",
+            label: batchCount > 1 ? `Pile ×${batchCount}` : "Pile & Go",
+            hint:
+              queuedTableCount > 0
+                ? `Throw to Table Pile (+ ${queuedTableCount} queued) & switch now • Hold Shift = stage only`
+                : batchCount > 1
+                ? `Push ${batchCount} prints to Table Pile & switch now • Hold Shift = stage only`
+                : "Push to Table Pile & switch now • Hold Shift = stage only",
+            shiftLabel: batchCount > 1 ? `+ Pile ×${batchCount}` : "+ To Pile",
+            shiftHint:
+              batchCount > 1
+                ? `Stage ${batchCount} prints for Table Pile without leaving this view`
+                : queuedTableCount > 0
+                ? `Stage for Table Pile (${queuedTableCount} queued) without leaving this view`
+                : "Stage for Table Pile without leaving this view",
+            active: queuedTableCount > 0,
+            shiftActive: true,
+            icon: <Layers size={16} />,
+            onSelect: (ev) => onPushToTablePile?.(item, { stageOnly: Boolean(ev?.shiftKey) }),
+          },
+        ]
+      : []),
     {
       id: "tile-pin",
       label: isPin ? "Unpin" : "Pin Top",
@@ -706,27 +745,33 @@ export function buildLightboxRadialItems({
             icon: <RotateCcw size={16} />,
             onSelect: () => onRescueFromPurgatory?.(item),
           },
+          {
+            id: "lb-burn",
+            label: "Delete",
+            hint: "Permanently delete file from disk (Hold Shift = instant)",
+            shiftLabel: "Del Now!",
+            shiftHint: "Shift held: permanently Delete file from disk immediately!",
+            danger: true,
+            requiresConfirm: true,
+            confirmCaption: "Click again to Delete file • Shift = instant",
+            icon: <Trash2 size={16} />,
+            onSelect: () => onBurnItem?.(item),
+          },
         ]
       : [
           {
             id: "lb-purgatory",
             label: "Purgatory",
-            hint: "Beam to Purgatory (Shift = Burn SSD)",
+            hint: "Move to Purgatory (Hold Shift = Delete)",
+            shiftLabel: "Del Now!",
+            shiftHint: "Release to permanently Delete file from disk!",
+            shiftIcon: <Trash2 size={16} />,
+            shiftDanger: true,
             icon: <Flame size={16} />,
             onSelect: (ev) =>
               ev?.shiftKey ? onBurnItem?.(item) : onSendToPurgatory?.(item),
           },
         ]),
-    {
-      id: "lb-burn",
-      label: "Burn SSD",
-      hint: "Permanently erase from drive (Shift = instant)",
-      danger: true,
-      requiresConfirm: true,
-      confirmCaption: "Click again to Burn from SSD • Shift = instant",
-      icon: <Trash2 size={16} />,
-      onSelect: () => onBurnItem?.(item),
-    },
     {
       id: "lb-pin",
       label: isPin ? "Unpin" : "Pin Top",

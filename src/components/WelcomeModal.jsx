@@ -55,7 +55,7 @@ const SHORTCUT_GROUPS = [
       { keys: ["Dbl-Click Video"], desc: "Toggle native monitor Fullscreen" },
       { keys: ["0", "/", "1"], desc: "Fit to viewport (0) or crisp 1:1 native pixels (1)" },
       { keys: ["I", "/", "H"], desc: "Toggle Info & FX drawer (I) or Pure View hide HUD (H)" },
-      { keys: ["F", "/", "X", "/", "Del"], desc: "Favorite (F) · Purgatory (X/Del) · Burn SSD (+ Shift)" },
+      { keys: ["F", "/", "X", "/", "Del"], desc: "Favorite (F) · Purgatory (X/Del) · Delete (+ Shift)" },
       { keys: ["Right-Click"], desc: "Open Lightbox Radial Menu" },
       { keys: ["Esc", "or", "Backdrop"], desc: "Exit Fullscreen first, or close Lightbox" },
     ],
@@ -575,7 +575,7 @@ export default function WelcomeModal({
                   <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
                   <div className="hm-update-title-row">
                     <span className="hm-update-ver-pill">
-                      Installed: v{updateInfo?.currentVersion || "0.9.1-beta"}
+                      Installed: v{updateInfo?.currentVersion || "0.9.2-beta"}
                     </span>
                     <span className="hm-update-mode-pill">
                       {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}

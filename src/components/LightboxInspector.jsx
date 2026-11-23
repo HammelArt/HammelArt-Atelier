@@ -15,7 +15,44 @@ import {
 } from "lucide-react";
 import { FavMark, useCuration } from "../utils/curation";
 import ThemedSelect from "./ThemedSelect";
-import { getStyleParams, getExitStyleParams } from "../utils/lightboxFlight";
+import {
+  DEFAULT_LIGHTBOX_CFG,
+  getStyleParams,
+  getExitStyleParams,
+} from "../utils/lightboxFlight";
+
+const INSPECTOR_FIELD_DEFS = [
+  { key: "resolution", label: "Resolution" },
+  { key: "fileSize", label: "File Size" },
+  { key: "model", label: "Model" },
+  { key: "seed", label: "Seed" },
+  { key: "sampler", label: "Sampler" },
+  { key: "scheduler", label: "Scheduler" },
+  { key: "steps", label: "Steps" },
+  { key: "cfg", label: "CFG Scale" },
+  { key: "guidance", label: "Guidance" },
+  { key: "denoise", label: "Denoise" },
+  { key: "shift", label: "Shift" },
+  { key: "vae", label: "VAE" },
+  { key: "clip", label: "CLIP" },
+  { key: "loras", label: "LoRAs" },
+  { key: "negativePrompt", label: "Neg Prompt" },
+];
+
+function assetFilename(raw) {
+  if (raw == null) return "";
+  const s = String(raw).trim();
+  if (!s || s === "Unknown" || s === "—") return "";
+  return s.replace(/\\/g, "/").split("/").pop() || s;
+}
+
+function copyTextWithFlash(text, setCopied) {
+  if (text == null || text === "" || text === "Unknown" || text === "—") return;
+  navigator.clipboard?.writeText(String(text)).then(() => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
+  });
+}
 
 function CopyChip({ text, label = "Copy", compact = false }) {
   const [copied, setCopied] = useState(false);
@@ -23,10 +60,7 @@ function CopyChip({ text, label = "Copy", compact = false }) {
 
   const handleCopy = (e) => {
     e.stopPropagation();
-    navigator.clipboard?.writeText(String(text)).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1300);
-    });
+    copyTextWithFlash(text, setCopied);
   };
 
   return (
@@ -38,6 +72,72 @@ function CopyChip({ text, label = "Copy", compact = false }) {
     >
       {copied ? <Check size={11} /> : <Copy size={11} />}
       {!compact && <span>{copied ? "Copied!" : label}</span>}
+    </button>
+  );
+}
+
+function SpecCard({ label, display, copyValue, title, wide = false }) {
+  const [copied, setCopied] = useState(false);
+  const canCopy =
+    copyValue != null &&
+    copyValue !== "" &&
+    copyValue !== "Unknown" &&
+    copyValue !== "—";
+
+  if (!canCopy) {
+    return (
+      <div className={`lb-spec-card ${wide ? "wide" : ""}`}>
+        <span>{label}</span>
+        <strong title={title || undefined}>{display || "—"}</strong>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className={`lb-spec-card is-clickable ${wide ? "wide" : ""} ${copied ? "is-copied" : ""}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        copyTextWithFlash(copyValue, setCopied);
+      }}
+      title={title || `Click to copy: ${copyValue}`}
+    >
+      <div className="lb-spec-top">
+        <span>{label}</span>
+        <span className="lb-spec-copy-icon">
+          {copied ? (
+            <>
+              <Check size={10} /> Copied
+            </>
+          ) : (
+            <Copy size={10} />
+          )}
+        </span>
+      </div>
+      <strong>{display}</strong>
+    </button>
+  );
+}
+
+function AssetPillChip({ display, copyValue, weightText = null, title }) {
+  const [copied, setCopied] = useState(false);
+  if (!display || display === "Unknown") return null;
+  const textToCopy = copyValue || display;
+
+  return (
+    <button
+      type="button"
+      className={`lb-asset-pill ${copied ? "is-copied" : ""}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        copyTextWithFlash(textToCopy, setCopied);
+      }}
+      title={title || `Click to copy: ${textToCopy}`}
+    >
+      <span className="lb-asset-pill-name">{display}</span>
+      {weightText != null && <span className="lb-asset-pill-weight">{weightText}</span>}
+      {copied && <Check size={11} />}
     </button>
   );
 }
@@ -75,6 +175,30 @@ export default function LightboxInspector({
 
   const mp =
     item.width && item.height ? ((item.width * item.height) / 1_000_000).toFixed(2) : null;
+
+  const fieldsCfg = {
+    ...DEFAULT_LIGHTBOX_CFG.inspectorFields,
+    ...(cfg?.inspectorFields || {}),
+  };
+  const showField = (key) => fieldsCfg[key] !== false;
+  const hasVal = (v) => v != null && v !== "" && v !== "Unknown" && v !== "—";
+  const clipList = Array.isArray(item.clips) ? item.clips.filter(hasVal) : [];
+  const loraList = Array.isArray(item.loras) ? item.loras.filter((l) => l && hasVal(l.name)) : [];
+  const anyTelemetryEnabled =
+    showField("resolution") ||
+    showField("fileSize") ||
+    showField("model") ||
+    showField("seed") ||
+    showField("sampler") ||
+    showField("scheduler") ||
+    showField("steps") ||
+    showField("cfg") ||
+    showField("guidance") ||
+    showField("denoise") ||
+    showField("shift") ||
+    showField("vae") ||
+    showField("clip") ||
+    showField("loras");
 
   const handleDownloadWorkflow = () => {
     if (!item.workflow) return;
@@ -219,50 +343,152 @@ export default function LightboxInspector({
             })()}
 
             {/* Technical Specs Matrix */}
-            <div className="lb-spec-grid">
-              <div className="lb-spec-card">
-                <span>Resolution</span>
-                <strong>
-                  {item.resolution || "—"}
-                  {mp ? ` (${mp} MP)` : ""}
-                </strong>
-              </div>
-              <div className="lb-spec-card">
-                <span>File Size</span>
-                <strong>
-                  {item.file_size_mb ? `${item.file_size_mb} MB` : "—"}
-                  {item.media_type === "video" && item.duration_sec
-                    ? ` • ${item.duration_sec}s`
-                    : ""}
-                </strong>
-              </div>
-              <div className="lb-spec-card wide">
-                <div className="lb-spec-top">
-                  <span>Model</span>
-                  <CopyChip text={item.model_short || item.model} compact />
-                </div>
-                <strong title={item.model}>{item.model_short || "Unknown"}</strong>
-              </div>
-              <div className="lb-spec-card">
-                <div className="lb-spec-top">
-                  <span>Seed</span>
-                  <CopyChip text={item.seed} compact />
-                </div>
-                <strong>{item.seed || "—"}</strong>
-              </div>
-              <div className="lb-spec-card">
-                <span>Sampler</span>
-                <strong>{item.sampler || "—"}</strong>
-              </div>
-              <div className="lb-spec-card">
-                <span>Steps</span>
-                <strong>{item.steps || "—"}</strong>
-              </div>
-              <div className="lb-spec-card">
-                <span>CFG Scale</span>
-                <strong>{item.cfg || "—"}</strong>
-              </div>
+            <div className="lb-spec-section-head">
+              <span>Generation Telemetry</span>
+              <button
+                type="button"
+                onClick={() => setTab("settings")}
+                title="Choose which readout fields appear here"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--hm-accent-bright)",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <SlidersHorizontal size={10} /> Fields
+              </button>
             </div>
+
+            {anyTelemetryEnabled && (
+              <div className="lb-spec-grid">
+                {showField("resolution") && (
+                  <SpecCard
+                    label="Resolution"
+                    display={`${item.resolution || "—"}${mp ? ` (${mp} MP)` : ""}`}
+                    copyValue={item.resolution}
+                  />
+                )}
+                {showField("fileSize") && (
+                  <SpecCard
+                    label="File Size"
+                    display={`${item.file_size_mb ? `${item.file_size_mb} MB` : "—"}${
+                      item.media_type === "video" && item.duration_sec
+                        ? ` • ${item.duration_sec}s`
+                        : ""
+                    }`}
+                    copyValue={item.file_size_mb ? `${item.file_size_mb} MB` : null}
+                  />
+                )}
+                {showField("model") && (() => {
+                  const modelFile = assetFilename(item.model);
+                  const modelCopy = modelFile || (hasVal(item.model_short) ? item.model_short : null);
+                  return (
+                    <SpecCard
+                      label="Model"
+                      wide
+                      display={item.model_short || "Unknown"}
+                      copyValue={modelCopy}
+                      title={modelFile || undefined}
+                    />
+                  );
+                })()}
+                {showField("seed") && (
+                  <SpecCard label="Seed" display={item.seed || "—"} copyValue={item.seed} />
+                )}
+                {showField("sampler") && (
+                  <SpecCard
+                    label="Sampler"
+                    display={item.sampler || "—"}
+                    copyValue={item.sampler}
+                  />
+                )}
+                {showField("scheduler") && hasVal(item.scheduler) && (
+                  <SpecCard
+                    label="Scheduler"
+                    display={item.scheduler}
+                    copyValue={item.scheduler}
+                  />
+                )}
+                {showField("steps") && (
+                  <SpecCard label="Steps" display={item.steps || "—"} copyValue={item.steps} />
+                )}
+                {showField("cfg") && (
+                  <SpecCard label="CFG Scale" display={item.cfg || "—"} copyValue={item.cfg} />
+                )}
+                {showField("guidance") && hasVal(item.guidance) && (
+                  <SpecCard
+                    label="Guidance"
+                    display={item.guidance}
+                    copyValue={item.guidance}
+                  />
+                )}
+                {showField("denoise") && hasVal(item.denoise) && (
+                  <SpecCard label="Denoise" display={item.denoise} copyValue={item.denoise} />
+                )}
+                {showField("shift") && hasVal(item.shift) && (
+                  <SpecCard label="Shift" display={item.shift} copyValue={item.shift} />
+                )}
+                {showField("vae") && hasVal(item.vae_short) && (() => {
+                  const vaeFile = assetFilename(item.vae_raw) || item.vae_short;
+                  return (
+                    <SpecCard
+                      label="VAE"
+                      wide
+                      display={item.vae_short}
+                      copyValue={vaeFile}
+                      title={vaeFile}
+                    />
+                  );
+                })()}
+                {showField("clip") && clipList.length > 0 && (
+                  <div className="lb-spec-card wide">
+                    <span>{clipList.length > 1 ? "CLIP Encoders" : "CLIP Encoder"}</span>
+                    <div className="lb-pill-strip">
+                      {clipList.map((clipName, idx) => {
+                        const rawClip = Array.isArray(item.clips_raw) ? item.clips_raw[idx] : "";
+                        const clipFile = assetFilename(rawClip) || clipName;
+                        return (
+                          <AssetPillChip
+                            key={`${clipName}-${idx}`}
+                            display={clipName}
+                            copyValue={clipFile}
+                            title={clipFile}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+                {showField("loras") && loraList.length > 0 && (
+                  <div className="lb-spec-card wide">
+                    <span>Active LoRAs ({loraList.length})</span>
+                    <div className="lb-pill-strip">
+                      {loraList.map((lora, idx) => {
+                        const loraFile = assetFilename(lora.filename) || lora.name;
+                        return (
+                          <AssetPillChip
+                            key={`${lora.name}-${idx}`}
+                            display={lora.name}
+                            copyValue={loraFile}
+                            weightText={
+                              lora.strength != null ? Number(lora.strength).toFixed(2) : null
+                            }
+                            title={loraFile}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Workflow JSON Action */}
             {item.has_workflow && item.workflow && (
@@ -290,7 +516,7 @@ export default function LightboxInspector({
               </div>
             )}
 
-            {item.negative_prompt && (
+            {showField("negativePrompt") && item.negative_prompt && (
               <div className="lb-prompt-card neg">
                 <div className="lb-prompt-head">
                   <span>Negative Prompt</span>
@@ -597,6 +823,55 @@ export default function LightboxInspector({
                   {opt.label}
                 </button>
               ))}
+            </div>
+
+            <div className="lb-spec-section-head" style={{ marginTop: 12 }}>
+              <span>Visible Readout Fields</span>
+              <button
+                type="button"
+                onClick={() =>
+                  onPatchCfg({
+                    inspectorFields: Object.fromEntries(
+                      INSPECTOR_FIELD_DEFS.map((f) => [f.key, true])
+                    ),
+                  })
+                }
+                title="Show all telemetry fields"
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--hm-accent-bright)",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Show All
+              </button>
+            </div>
+            <div className="lb-field-toggles-grid">
+              {INSPECTOR_FIELD_DEFS.map((field) => {
+                const isOn = showField(field.key);
+                return (
+                  <button
+                    key={field.key}
+                    type="button"
+                    className={`lb-field-chip ${isOn ? "is-on" : ""}`}
+                    onClick={() =>
+                      onPatchCfg({
+                        inspectorFields: {
+                          [field.key]: !isOn,
+                        },
+                      })
+                    }
+                    aria-pressed={isOn}
+                  >
+                    {isOn && <Check size={10} />}
+                    <span>{field.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
             <div className="lb-shortcuts-card">

@@ -43,6 +43,23 @@ export const DEFAULT_LIGHTBOX_CFG = {
   inspectorOpen: false,
   edgePadding: 14,
   videoDefault1to1: true,
+  inspectorFields: {
+    resolution: true,
+    fileSize: true,
+    model: true,
+    seed: true,
+    sampler: true,
+    scheduler: true,
+    steps: true,
+    cfg: true,
+    guidance: true,
+    denoise: false,
+    shift: false,
+    vae: true,
+    clip: true,
+    loras: true,
+    negativePrompt: true,
+  },
 };
 
 export function getStyleParams(cfg, styleId) {
@@ -125,6 +142,10 @@ export function loadLightboxCfg() {
       ...parsed,
       styleParams: mergedStyleParams,
       exitStyleParams: mergedExitStyleParams,
+      inspectorFields: {
+        ...DEFAULT_LIGHTBOX_CFG.inspectorFields,
+        ...(parsed.inspectorFields || {}),
+      },
     };
     if (!parsed.entryStyle && typeof parsed.spin360 === "boolean") {
       merged.entryStyle = parsed.spin360 ? "spin" : "glide";
@@ -133,6 +154,7 @@ export function loadLightboxCfg() {
   } catch {
     return {
       ...DEFAULT_LIGHTBOX_CFG,
+      inspectorFields: { ...DEFAULT_LIGHTBOX_CFG.inspectorFields },
       styleParams: {
         glide: { ...DEFAULT_STYLE_PARAMS.glide },
         spin: { ...DEFAULT_STYLE_PARAMS.spin },

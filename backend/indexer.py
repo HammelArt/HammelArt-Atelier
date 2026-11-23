@@ -208,6 +208,7 @@ class GalleryIndexer:
                 cached
                 and cached.get("mtime") == mtime
                 and cached.get("file_size_bytes") == size_bytes
+                and cached.get("meta_version") == 2
                 and "width" in cached
             ):
                 record = dict(cached)
@@ -217,6 +218,8 @@ class GalleryIndexer:
                 # Omit full heavy workflow dict from the list index payload to keep JSON ultra-compact
                 meta_light = {k: v for k, v in meta.items() if k != "workflow"}
                 prompt_snip = (meta.get("raw_prompt") or "")[:260]
+                lora_names = " ".join(str(l.get("name") or "") for l in (meta.get("loras") or []) if isinstance(l, dict))
+                clip_names = " ".join(str(c) for c in (meta.get("clips") or []))
                 search_blob = " ".join(
                     [
                         filename.lower(),
@@ -225,6 +228,10 @@ class GalleryIndexer:
                         (meta.get("dialect") or "").lower(),
                         str(meta.get("seed") or "").lower(),
                         (meta.get("sampler") or "").lower(),
+                        (meta.get("scheduler") or "").lower(),
+                        (meta.get("vae_short") or "").lower(),
+                        clip_names.lower(),
+                        lora_names.lower(),
                         (meta.get("raw_prompt") or "").lower(),
                         " ".join(meta.get("tags") or []),
                     ]

@@ -68,6 +68,9 @@ export default function SlideshowEngine({
   lightboxOpen = false,
   screensaverMode = false,
   editing = false,
+  queuedPushItems = [],
+  queuedPushNonce = 0,
+  onConsumeQueuedPush,
   onInspect,
   onPatchCfg,
   onOpenDrawer,
@@ -487,6 +490,9 @@ export default function SlideshowEngine({
         lightboxOpen={lightboxOpen}
         screensaverMode={screensaverMode}
         editing={editing}
+        queuedPushItems={queuedPushItems}
+        queuedPushNonce={queuedPushNonce}
+        onConsumeQueuedPush={onConsumeQueuedPush}
         onInspect={onInspect}
         onReshufflePlaylist={() => setLocalShuffleNonce((n) => n + 1)}
         onPatchParams={(patch) =>

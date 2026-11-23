@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CopyPlus, FolderInput, FolderPlus, HardDrive, Trash2, X } from "lucide-react";
-import { analyzeRootRemovalImpact, parseScopedFolderPath } from "../utils/folderTree";
+import { analyzeRootRemovalImpact, getRootPermaPins, parseScopedFolderPath } from "../utils/folderTree";
 
 export function AddRootModal({ isOpen, onClose, onRootAdded }) {
   const [pathInput, setPathInput] = useState("");
@@ -254,6 +254,22 @@ export function RemoveRootConfirmModal({
     return analyzeRootRemovalImpact(root.id, folderCombos, userWallPresets);
   }, [root, folderCombos, userWallPresets]);
 
+  const affectedPermaPins = useMemo(() => (root ? getRootPermaPins(root.id) : []), [root]);
+  const permaCounts = useMemo(() => {
+    let images = 0;
+    let videos = 0;
+    for (const p of affectedPermaPins) {
+      const fn = p?.item?.filename || "";
+      const isVid =
+        Boolean(p?.item?.is_video) ||
+        p?.item?.media_type === "video" ||
+        /\.(mp4|webm|mov|mkv)$/i.test(fn);
+      if (isVid) videos++;
+      else images++;
+    }
+    return { images, videos };
+  }, [affectedPermaPins]);
+
   useEffect(() => {
     if (root) {
       setMixedPolicy("strip");
@@ -277,7 +293,10 @@ export function RemoveRootConfirmModal({
 
   const { exclusiveCombos, mixedCombos, affectedWallPresets } = impact;
   const hasAnyImpact =
-    exclusiveCombos.length > 0 || mixedCombos.length > 0 || affectedWallPresets.length > 0;
+    exclusiveCombos.length > 0 ||
+    mixedCombos.length > 0 ||
+    affectedWallPresets.length > 0 ||
+    affectedPermaPins.length > 0;
 
   return (
     <div
@@ -369,6 +388,33 @@ export function RemoveRootConfirmModal({
                     {affectedWallPresets.map((wp) => (
                       <li key={wp.id}>{wp.label}</li>
                     ))}
+                  </ul>
+                </div>
+              )}
+
+              {affectedPermaPins.length > 0 && (
+                <div className="hm-remove-impact-group">
+                  <strong>
+                    Table Pile Perma-Pins from this root (
+                    {[
+                      permaCounts.images > 0
+                        ? `${permaCounts.images} ${permaCounts.images === 1 ? "image" : "images"}`
+                        : "",
+                      permaCounts.videos > 0
+                        ? `${permaCounts.videos} ${permaCounts.videos === 1 ? "video" : "videos"}`
+                        : "",
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}{" "}
+                    will be unpinned from the oak desk):
+                  </strong>
+                  <ul>
+                    {affectedPermaPins.slice(0, 6).map((p, idx) => (
+                      <li key={p.key || idx}>{p.item?.filename || "Pinned item"}</li>
+                    ))}
+                    {affectedPermaPins.length > 6 && (
+                      <li>…and {affectedPermaPins.length - 6} more pinned to Table Pile</li>
+                    )}
                   </ul>
                 </div>
               )}

@@ -80,6 +80,7 @@ import {
   parseScopedFolderPath,
   remapFolderSpecForTreeOp,
   remapSubfolderPrefix,
+  removeRootPermaPins,
 } from "./utils/folderTree";
 import {
   applyPresetObjectToZone,
@@ -223,6 +224,8 @@ export default function App() {
     }
   });
   const [inspectPayload, setInspectPayload] = useState(null);
+  const [tablePileQueue, setTablePileQueue] = useState([]);
+  const [tablePilePushNonce, setTablePilePushNonce] = useState(0);
 
   // Step 4 Top-Level App Mode: "classic" | "conveyor" | "slideshow" | "wall"
   const [appMode, setAppMode] = useState(() => {
@@ -2050,6 +2053,51 @@ export default function App() {
     }
   };
 
+  const handlePushToTablePile = (itemsOrOne, { stageOnly = false } = {}) => {
+    const incoming = normalizeItemsArg(itemsOrOne);
+    if (!incoming.length) return;
+    if (stageOnly) {
+      setTablePileQueue((prev) => {
+        const seen = new Set(prev.map(itemKey));
+        const added = incoming.filter((it) => {
+          const k = itemKey(it);
+          if (!k || seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+        const next = added.length > 0 ? [...prev, ...added] : prev;
+        curation?.showToast?.(
+          added.length > 0
+            ? `Staged ${added.length} for Table Pile (${next.length} queued)`
+            : `Already queued for Table Pile (${next.length} queued)`
+        );
+        return next;
+      });
+      return;
+    }
+
+    setTablePileQueue((prev) => {
+      const seen = new Set(prev.map(itemKey));
+      const merged = [...prev];
+      incoming.forEach((it) => {
+        const k = itemKey(it);
+        if (k && !seen.has(k)) {
+          seen.add(k);
+          merged.push(it);
+        }
+      });
+      return merged;
+    });
+    setTablePilePushNonce((n) => n + 1);
+    setSelectedKeys(new Set());
+    setSingleCfgs((prev) => ({
+      ...prev,
+      slideshow: normalizeSlideshowCfg({ ...prev.slideshow, styleId: "table_pile" }),
+      presetIds: { ...prev.presetIds, slideshow: null },
+    }));
+    handleSwitchAppMode("slideshow");
+  };
+
   const handleSelectFolderFilter = (nextSpec) => {
     if (nextSpec === "__PURGATORY__") {
       setPurgatoryOpen(true);
@@ -2530,6 +2578,8 @@ export default function App() {
       setUserWallPresets(nextWallPresets);
       if (nextWallTree) setWallTree(nextWallTree);
       setFolderFilter(nextFolderFilter);
+      removeRootPermaPins(root.id);
+      setTablePileQueue((prev) => prev.filter((it) => it?.root_id !== root.id));
       setPendingRemoveRoot(null);
 
       await refreshLibrary({ silent: true });
@@ -3101,8 +3151,13 @@ export default function App() {
           comfyOnline,
           inPurgatoryView: purgatoryOpen,
           batchCount,
+          queuedTableCount: tablePileQueue.length,
           onOpenNote: (it) => setNoteTarget({ item: it, x: radialMenu.x, y: radialMenu.y }),
           onDuplicateItem: () => handleCopyItemsToFolder(radialTargets, null),
+          onPushToTablePile:
+            !purgatoryOpen && appMode !== "slideshow"
+              ? (_, opts) => handlePushToTablePile(radialTargets, opts)
+              : undefined,
           onSendToPurgatory: () => handleSendToPurgatory(radialTargets),
           onRescueFromPurgatory: () => handleRescueFromPurgatory(radialTargets),
           onBurnItem: () => handlePermanentBurn(radialTargets),
@@ -3149,9 +3204,10 @@ export default function App() {
     sortBy,
     searchFavOnly,
     drawerOpen,
+    tablePileQueue.length,
   ]);
 
-  const openGalleryRadialAt = (clientX, clientY, targetEl) => {
+  const openGalleryRadialAt = (clientX, clientY, targetEl, shiftHeld = false) => {
     const tag = targetEl?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") {
       setRadialMenu(null);
@@ -3176,6 +3232,7 @@ export default function App() {
       y: clientY,
       openedAt: performance.now(),
       fromPointerDown: true,
+      shiftHeld: Boolean(shiftHeld),
     });
   };
 
@@ -3319,6 +3376,9 @@ export default function App() {
           isActiveZone={true}
           lightboxOpen={Boolean(inspectPayload) || screensaverActive}
           editing={drawerOpen}
+          queuedPushItems={tablePileQueue}
+          queuedPushNonce={tablePilePushNonce}
+          onConsumeQueuedPush={() => setTablePileQueue([])}
           onInspect={safeInspectSingle}
           onPatchCfg={patchSlideshow}
           onOpenDrawer={openDrawer}
@@ -3737,7 +3797,7 @@ export default function App() {
             ) {
               return;
             }
-            openGalleryRadialAt(e.clientX, e.clientY, e.target);
+            openGalleryRadialAt(e.clientX, e.clientY, e.target, e.shiftKey);
           }}
         >
           {drawerOpen && (
@@ -3946,7 +4006,7 @@ export default function App() {
             setRadialMenu(null);
             return;
           }
-          openGalleryRadialAt(e.clientX, e.clientY, under);
+          openGalleryRadialAt(e.clientX, e.clientY, under, e.shiftKey);
         }}
       />
       <NotePopover target={noteTarget} onClose={() => setNoteTarget(null)} />
