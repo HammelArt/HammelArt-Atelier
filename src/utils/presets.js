@@ -264,9 +264,9 @@ export function filterAndSortItems(
     }
     if (q) {
       const note = notesMap?.[key] || "";
-      const blob = `${it.filename} ${it.raw_prompt || ""} ${it.model_short || ""} ${
-        it.seed || ""
-      } ${note}`.toLowerCase();
+      const blob = `${it.filename} ${it.search_blob || ""} ${it.raw_prompt || ""} ${
+        it.model || ""
+      } ${it.model_short || ""} ${it.seed || ""} ${note}`.toLowerCase();
       if (!blob.includes(q)) return false;
     }
     return true;

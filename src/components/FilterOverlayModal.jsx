@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   SlidersHorizontal,
   X,
@@ -14,6 +14,11 @@ import {
   Pin,
   StickyNote,
   Volume2,
+  Bookmark,
+  BookmarkPlus,
+  Trash2,
+  Search,
+  Globe,
 } from "lucide-react";
 import {
   ASPECT_RATIO_PRESETS,
@@ -22,9 +27,15 @@ import {
   FORMAT_OPTIONS,
   MP_PRESETS,
   SIZE_PRESETS,
+  assetFilename,
   cloneAdvancedFilter,
   countActiveAdvancedFilters,
+  doesFilterPresetMatchCurrent,
+  hasAnyPresetRule,
+  suggestFilterPresetName,
+  summarizeFilterPreset,
 } from "../utils/advancedFilter";
+import { FavMark } from "../utils/curation";
 import { formatCompactFolderSize } from "../utils/folderTree";
 import { filterAndSortItems } from "../utils/presets";
 import ThemedSelect from "./ThemedSelect";
@@ -46,20 +57,64 @@ export default function FilterOverlayModal({
   searchFavOnly = false,
   searchAllFolders = false,
   scopeLabel = "Current View",
+  savedPresets = [],
+  onSavePreset,
+  onDeletePreset,
+  favIcon = "star",
 }) {
   const [draft, setDraft] = useState(() => cloneAdvancedFilter(activeFilter));
+  const [draftKeywords, setDraftKeywords] = useState(() => String(search || ""));
+  const [draftFavOnly, setDraftFavOnly] = useState(() => Boolean(searchFavOnly));
+  const [draftAllFolders, setDraftAllFolders] = useState(() => Boolean(searchAllFolders));
+  const [selectedPresetId, setSelectedPresetId] = useState("");
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [presetNameInput, setPresetNameInput] = useState("");
+  const nameInputRef = useRef(null);
+  const prevOpenRef = useRef(false);
 
   useEffect(() => {
-    if (isOpen) {
-      setDraft(cloneAdvancedFilter(activeFilter));
+    const justOpened = isOpen && !prevOpenRef.current;
+    prevOpenRef.current = isOpen;
+    if (justOpened) {
+      const nextAdv = cloneAdvancedFilter(activeFilter);
+      const nextSearch = String(search || "");
+      const nextFav = Boolean(searchFavOnly);
+      const nextAll = Boolean(searchAllFolders);
+      setDraft(nextAdv);
+      setDraftKeywords(nextSearch);
+      setDraftFavOnly(nextFav);
+      setDraftAllFolders(nextAll);
+      const matched = (savedPresets || []).find((p) =>
+        doesFilterPresetMatchCurrent(p, {
+          search: nextSearch,
+          searchFavOnly: nextFav,
+          searchAllFolders: nextAll,
+          advancedFilter: nextAdv,
+        })
+      );
+      setSelectedPresetId(matched?.id || "");
+      setSaveOpen(false);
+      setPresetNameInput("");
     }
-  }, [isOpen, activeFilter]);
+  }, [isOpen, activeFilter, search, searchFavOnly, searchAllFolders, savedPresets]);
+
+  useEffect(() => {
+    if (saveOpen) {
+      requestAnimationFrame(() => nameInputRef.current?.focus?.());
+    }
+  }, [saveOpen]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
     const onKeyDown = (e) => {
       if (e.key === "Escape") {
-        if (document.querySelector(".hm-select-menu")) return;
+        if (document.querySelector(".hm-themed-menu")) return;
+        if (saveOpen) {
+          e.preventDefault();
+          e.stopPropagation();
+          setSaveOpen(false);
+          return;
+        }
         e.preventDefault();
         e.stopPropagation();
         onClose();
@@ -67,12 +122,12 @@ export default function FilterOverlayModal({
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, saveOpen]);
 
   const modelOptions = useMemo(() => {
     const counts = new Map();
     for (const it of rawItems) {
-      const m = (it?.model_short || "").trim();
+      const m = (assetFilename(it?.model) || it?.model_short || "").trim();
       if (!m || m === "Unknown") continue;
       counts.set(m, (counts.get(m) || 0) + 1);
     }
@@ -83,38 +138,36 @@ export default function FilterOverlayModal({
 
   const baseCount = useMemo(() => {
     if (!isOpen) return 0;
-    return filterAndSortItems(rawItems, folderFilter, search, "newest", 0, folderCombos, {
+    return filterAndSortItems(rawItems, folderFilter, "", "newest", 0, folderCombos, {
       favSet,
       pinSet,
       purgatorySet,
       notesMap,
-      favoritesOnly: searchFavOnly,
-      searchAllFolders,
+      favoritesOnly: false,
+      searchAllFolders: draftAllFolders,
       advancedFilter: null,
     }).length;
   }, [
     isOpen,
     rawItems,
     folderFilter,
-    search,
     folderCombos,
     favSet,
     pinSet,
     purgatorySet,
     notesMap,
-    searchFavOnly,
-    searchAllFolders,
+    draftAllFolders,
   ]);
 
   const draftMatches = useMemo(() => {
     if (!isOpen) return { count: 0, totalMb: 0 };
-    const matched = filterAndSortItems(rawItems, folderFilter, search, "newest", 0, folderCombos, {
+    const matched = filterAndSortItems(rawItems, folderFilter, draftKeywords, "newest", 0, folderCombos, {
       favSet,
       pinSet,
       purgatorySet,
       notesMap,
-      favoritesOnly: searchFavOnly,
-      searchAllFolders,
+      favoritesOnly: draftFavOnly,
+      searchAllFolders: draftAllFolders,
       advancedFilter: draft,
     });
     let totalMb = 0;
@@ -126,21 +179,44 @@ export default function FilterOverlayModal({
     isOpen,
     rawItems,
     folderFilter,
-    search,
+    draftKeywords,
     folderCombos,
     favSet,
     pinSet,
     purgatorySet,
     notesMap,
-    searchFavOnly,
-    searchAllFolders,
+    draftFavOnly,
+    draftAllFolders,
     draft,
   ]);
+
+  const currentDraftObj = useMemo(
+    () => ({
+      search: draftKeywords,
+      searchFavOnly: draftFavOnly,
+      searchAllFolders: draftAllFolders,
+      advancedFilter: draft,
+    }),
+    [draftKeywords, draftFavOnly, draftAllFolders, draft]
+  );
+
+  const selectedPreset = useMemo(
+    () => (savedPresets || []).find((p) => p.id === selectedPresetId) || null,
+    [savedPresets, selectedPresetId]
+  );
+
+  const draftRuleTags = useMemo(() => summarizeFilterPreset(currentDraftObj), [currentDraftObj]);
+  const selectedPresetDirty = Boolean(
+    selectedPreset && !doesFilterPresetMatchCurrent(selectedPreset, currentDraftObj)
+  );
 
   if (!isOpen) return null;
 
   const draftRuleCount = countActiveAdvancedFilters(draft);
   const appliedRuleCount = countActiveAdvancedFilters(activeFilter);
+  const draftHasAny = hasAnyPresetRule(currentDraftObj);
+  const appliedHasAny =
+    appliedRuleCount > 0 || Boolean(String(search || "").trim()) || Boolean(searchFavOnly) || Boolean(searchAllFolders);
 
   const patchDraft = (patch) => setDraft((prev) => ({ ...prev, ...patch }));
 
@@ -152,14 +228,75 @@ export default function FilterOverlayModal({
     });
   };
 
+  const handleSelectPreset = (preset) => {
+    if (!preset) return;
+    if (selectedPresetId === preset.id && !selectedPresetDirty) {
+      setSelectedPresetId("");
+      return;
+    }
+    setSelectedPresetId(preset.id);
+    setDraft(cloneAdvancedFilter(preset.advancedFilter));
+    setDraftKeywords(String(preset.search || ""));
+    setDraftFavOnly(Boolean(preset.searchFavOnly));
+    setDraftAllFolders(Boolean(preset.searchAllFolders));
+    setSaveOpen(false);
+  };
+
+  const handleOpenSaveNew = () => {
+    setPresetNameInput(suggestFilterPresetName(currentDraftObj));
+    setSaveOpen(true);
+  };
+
+  const handleConfirmSaveNew = () => {
+    const cleanName = presetNameInput.trim();
+    if (!cleanName || !onSavePreset) return;
+    const saved = onSavePreset({
+      label: cleanName,
+      search: draftKeywords,
+      searchFavOnly: draftFavOnly,
+      searchAllFolders: draftAllFolders,
+      advancedFilter: cloneAdvancedFilter(draft),
+    });
+    if (saved?.id) setSelectedPresetId(saved.id);
+    setSaveOpen(false);
+    setPresetNameInput("");
+  };
+
+  const handleUpdateSelectedPreset = () => {
+    if (!selectedPreset || !onSavePreset) return;
+    const updated = onSavePreset({
+      id: selectedPreset.id,
+      label: selectedPreset.label,
+      search: draftKeywords,
+      searchFavOnly: draftFavOnly,
+      searchAllFolders: draftAllFolders,
+      advancedFilter: cloneAdvancedFilter(draft),
+    });
+    if (updated?.id) setSelectedPresetId(updated.id);
+  };
+
+  const handleDeleteSelectedPreset = (presetId) => {
+    if (!onDeletePreset || !presetId) return;
+    onDeletePreset(presetId);
+    if (selectedPresetId === presetId) setSelectedPresetId("");
+  };
+
   const handleSubmit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    onApplyFilter(cloneAdvancedFilter(draft));
+    onApplyFilter(cloneAdvancedFilter(draft), {
+      search: draftKeywords,
+      searchFavOnly: draftFavOnly,
+      searchAllFolders: draftAllFolders,
+    });
     onClose();
   };
 
   const handleDeactivateAll = () => {
     setDraft(cloneAdvancedFilter(DEFAULT_ADVANCED_FILTER));
+    setDraftKeywords("");
+    setDraftFavOnly(false);
+    setDraftAllFolders(false);
+    setSelectedPresetId("");
     onClearFilter?.();
     onClose();
   };
@@ -183,8 +320,8 @@ export default function FilterOverlayModal({
             </div>
             <div>
               <div className="hm-filter-eyebrow">
-                TEMPORARY LIBRARY FILTER • {searchAllFolders ? "ALL FOLDERS" : scopeLabel.toUpperCase()}
-                {searchFavOnly ? " • FAVORITES" : ""}
+                TEMPORARY LIBRARY FILTER • {draftAllFolders ? "ALL FOLDERS" : scopeLabel.toUpperCase()}
+                {draftFavOnly ? " • FAVORITES" : ""}
               </div>
               <h2 id="hm-filter-modal-title" className="hm-filter-title">
                 Detailed Media Filters
@@ -205,6 +342,187 @@ export default function FilterOverlayModal({
 
         {/* Scrollable 2-Column Filter Cards */}
         <div className="hm-filter-body">
+          {/* Saved Filter Presets Manager */}
+          <section className="hm-flt-presets-bar" aria-label="Saved Filter Presets">
+            <div className="hm-flt-presets-top">
+              <div className="hm-flt-presets-title">
+                <Bookmark size={13} className="hm-flt-ico" />
+                <span>Saved Filter Presets</span>
+                {savedPresets.length > 0 && (
+                  <span className="hm-flt-presets-count">{savedPresets.length}</span>
+                )}
+              </div>
+
+              <div className="hm-flt-presets-actions">
+                {selectedPreset && (
+                  <>
+                    {selectedPresetDirty && (
+                      <button
+                        type="button"
+                        className="hm-btn hm-flt-preset-act is-update"
+                        onClick={handleUpdateSelectedPreset}
+                        title={`Save modified rules back into "${selectedPreset.label}"`}
+                      >
+                        <Check size={11} />
+                        <span>Update &ldquo;{selectedPreset.label}&rdquo;</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="hm-btn hm-flt-preset-act is-del"
+                      onClick={() => handleDeleteSelectedPreset(selectedPreset.id)}
+                      title={`Delete preset "${selectedPreset.label}"`}
+                    >
+                      <Trash2 size={11} />
+                      <span>Delete</span>
+                    </button>
+                  </>
+                )}
+
+                {!saveOpen ? (
+                  <button
+                    type="button"
+                    className="hm-btn hm-flt-preset-act"
+                    disabled={!draftHasAny}
+                    onClick={handleOpenSaveNew}
+                    title={
+                      draftHasAny
+                        ? "Save the current rules & search scope as a reusable preset"
+                        : "Pick at least one filter or keyword first"
+                    }
+                  >
+                    <BookmarkPlus size={12} />
+                    <span>Save Preset…</span>
+                  </button>
+                ) : (
+                  <div className="hm-flt-save-inline">
+                    <input
+                      ref={nameInputRef}
+                      type="text"
+                      className="hm-flt-save-input"
+                      value={presetNameInput}
+                      onChange={(e) => setPresetNameInput(e.target.value)}
+                      placeholder="Preset name…"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleConfirmSaveNew();
+                        }
+                      }}
+                    />
+                    <button
+                      type="button"
+                      className="hm-btn hm-flt-preset-act is-update"
+                      disabled={!presetNameInput.trim()}
+                      onClick={handleConfirmSaveNew}
+                    >
+                      <Check size={11} />
+                      <span>Save</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="hm-btn hm-flt-preset-act"
+                      onClick={() => setSaveOpen(false)}
+                      title="Cancel"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {savedPresets.length > 0 ? (
+              <div className="hm-flt-preset-list">
+                {savedPresets.map((preset) => {
+                  const isSel = selectedPresetId === preset.id;
+                  const tags = summarizeFilterPreset(preset);
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={`hm-flt-preset-pill ${isSel ? "active" : ""}`}
+                      onClick={() => handleSelectPreset(preset)}
+                      title={
+                        tags.length > 0
+                          ? `Load preset "${preset.label}" (${tags.join(" • ")})`
+                          : `Load preset "${preset.label}"`
+                      }
+                    >
+                      <Bookmark size={10} />
+                      <span>{preset.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="hm-flt-presets-empty">
+                No saved presets yet — pick your favorite rules below and click <strong>Save Preset…</strong> to
+                reuse them in 1 click from here or the top bar.
+              </div>
+            )}
+
+            <div className="hm-flt-rule-summary">
+              <span className="hm-flt-rule-summary-lbl">
+                {selectedPreset ? `${selectedPreset.label}:` : "Included:"}
+              </span>
+              {draftRuleTags.length > 0 ? (
+                draftRuleTags.map((tag, idx) => (
+                  <span key={`${tag}-${idx}`} className="hm-flt-rule-summary-chip">
+                    {tag}
+                  </span>
+                ))
+              ) : (
+                <span className="hm-flt-rule-summary-none">none selected yet</span>
+              )}
+            </div>
+          </section>
+
+          {/* Keywords, Favorites & All Folders Scope Row */}
+          <div className="hm-flt-scope-bar">
+            <div className="hm-flt-scope-search">
+              <Search size={12} style={{ opacity: 0.72, flexShrink: 0 }} />
+              <input
+                type="text"
+                value={draftKeywords}
+                onChange={(e) => setDraftKeywords(e.target.value)}
+                placeholder="Keywords (prompt, model, note, filename…)"
+                aria-label="Filter keywords"
+              />
+              {draftKeywords && (
+                <button
+                  type="button"
+                  className="hm-flt-scope-clr"
+                  onClick={() => setDraftKeywords("")}
+                  title="Clear keywords"
+                >
+                  <X size={11} />
+                </button>
+              )}
+            </div>
+
+            <button
+              type="button"
+              className={`hm-flt-pill ${draftFavOnly ? "active" : ""}`}
+              onClick={() => setDraftFavOnly((v) => !v)}
+              title="Include only favorited renders"
+            >
+              <FavMark favIcon={favIcon} filled={draftFavOnly} size={11} />
+              <span>Favorites Only</span>
+            </button>
+
+            <button
+              type="button"
+              className={`hm-flt-pill ${draftAllFolders ? "active" : ""}`}
+              onClick={() => setDraftAllFolders((v) => !v)}
+              title="Search across ALL mounted folders instead of only the active folder"
+            >
+              <Globe size={11} />
+              <span>All Folders</span>
+            </button>
+          </div>
+
           <div className="hm-filter-grid">
             {/* 1. Media, Formats & Workflow */}
             <section className="hm-flt-card">
@@ -444,21 +762,30 @@ export default function FilterOverlayModal({
               </div>
 
               <div className="hm-flt-seg-row">
+                <button
+                  type="button"
+                  className={`hm-flt-pill ${(draft.orientations?.length || 0) === 0 ? "active" : ""}`}
+                  onClick={() => patchDraft({ orientations: [] })}
+                >
+                  Any
+                </button>
                 {[
-                  { id: "all", label: "Any" },
                   { id: "portrait", label: "Portrait" },
                   { id: "square", label: "Square" },
                   { id: "landscape", label: "Landscape" },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    className={`hm-flt-pill ${draft.orientation === opt.id ? "active" : ""}`}
-                    onClick={() => patchDraft({ orientation: opt.id })}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                ].map((opt) => {
+                  const active = (draft.orientations || []).includes(opt.id);
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      className={`hm-flt-pill ${active ? "active" : ""}`}
+                      onClick={() => toggleArrayVal("orientations", opt.id)}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="hm-flt-sub-label">Target Ratios (±8.5% tolerance)</div>
@@ -607,13 +934,19 @@ export default function FilterOverlayModal({
             <button
               type="button"
               className="hm-btn"
-              disabled={draftRuleCount === 0}
-              onClick={() => setDraft(cloneAdvancedFilter(DEFAULT_ADVANCED_FILTER))}
+              disabled={!draftHasAny}
+              onClick={() => {
+                setDraft(cloneAdvancedFilter(DEFAULT_ADVANCED_FILTER));
+                setDraftKeywords("");
+                setDraftFavOnly(false);
+                setDraftAllFolders(false);
+                setSelectedPresetId("");
+              }}
               title="Reset fields inside modal"
             >
               <RotateCcw size={12} /> Clear Fields
             </button>
-            {appliedRuleCount > 0 && (
+            {appliedHasAny && (
               <button
                 type="button"
                 className="hm-btn hm-btn-discard"

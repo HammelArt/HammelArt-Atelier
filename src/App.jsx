@@ -19,6 +19,8 @@ import {
   Upload,
   Maximize2,
   Minimize2,
+  Bookmark,
+  BookmarkPlus,
 } from "lucide-react";
 import { HAMMELART_CREST_PATH, ACCENT_SLOTS, applyThemeToDOM } from "./theme";
 import { FavMark, useCuration } from "./utils/curation";
@@ -70,7 +72,12 @@ import {
 } from "./utils/presets";
 import {
   DEFAULT_ADVANCED_FILTER,
+  cloneAdvancedFilter,
   countActiveAdvancedFilters,
+  doesFilterPresetMatchCurrent,
+  normalizeSavedFilterPreset,
+  suggestFilterPresetName,
+  summarizeFilterPreset,
 } from "./utils/advancedFilter";
 import {
   applyRootRemovalToState,
@@ -279,6 +286,62 @@ export default function App() {
   const [searchAllFolders, setSearchAllFolders] = useState(false);
   const [advancedFilter, setAdvancedFilter] = useState(DEFAULT_ADVANCED_FILTER);
   const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [savedFilterPresets, setSavedFilterPresets] = useState(() => {
+    try {
+      const raw = localStorage.getItem("argon_cb_saved_filters_v1");
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr.map(normalizeSavedFilterPreset) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false);
+  const [presetSaveOpen, setPresetSaveOpen] = useState(false);
+  const [presetSaveName, setPresetSaveName] = useState("");
+  const presetMenuRef = useRef(null);
+  const presetSaveInputRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("argon_cb_saved_filters_v1", JSON.stringify(savedFilterPresets));
+    } catch {}
+  }, [savedFilterPresets]);
+
+  useEffect(() => {
+    if (!presetMenuOpen) {
+      setPresetSaveOpen(false);
+      return undefined;
+    }
+    const onDown = (e) => {
+      if (presetMenuRef.current && !presetMenuRef.current.contains(e.target)) {
+        setPresetMenuOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        if (presetSaveOpen) {
+          setPresetSaveOpen(false);
+        } else {
+          setPresetMenuOpen(false);
+        }
+      }
+    };
+    window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [presetMenuOpen, presetSaveOpen]);
+
+  useEffect(() => {
+    if (presetSaveOpen) {
+      requestAnimationFrame(() => presetSaveInputRef.current?.focus?.());
+    }
+  }, [presetSaveOpen]);
+
   const activeAdvCount = useMemo(
     () => countActiveAdvancedFilters(advancedFilter),
     [advancedFilter]
@@ -292,6 +355,50 @@ export default function App() {
     setSearchAllFolders(false);
     setAdvancedFilter(DEFAULT_ADVANCED_FILTER);
   };
+
+  const activeFilterPreset = useMemo(() => {
+    const cur = { search, searchFavOnly, searchAllFolders, advancedFilter };
+    return savedFilterPresets.find((p) => doesFilterPresetMatchCurrent(p, cur)) || null;
+  }, [savedFilterPresets, search, searchFavOnly, searchAllFolders, advancedFilter]);
+
+  const handleApplySavedFilterPreset = useCallback(
+    (preset) => {
+      if (!preset) return;
+      if (activeFilterPreset?.id === preset.id) {
+        clearAllTempFilters();
+        setPresetMenuOpen(false);
+        return;
+      }
+      setSearch(String(preset.search || ""));
+      setSearchFavOnly(Boolean(preset.searchFavOnly));
+      setSearchAllFolders(Boolean(preset.searchAllFolders));
+      setAdvancedFilter(cloneAdvancedFilter(preset.advancedFilter));
+      setPresetMenuOpen(false);
+    },
+    [activeFilterPreset]
+  );
+
+  const handleSaveFilterPreset = useCallback((payload) => {
+    const normalized = normalizeSavedFilterPreset({
+      ...payload,
+      updatedAt: Date.now(),
+    });
+    setSavedFilterPresets((prev) => {
+      const idx = prev.findIndex((p) => p.id === normalized.id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = normalized;
+        return next;
+      }
+      return [normalized, ...prev];
+    });
+    return normalized;
+  }, []);
+
+  const handleDeleteFilterPreset = useCallback((presetId) => {
+    if (!presetId) return;
+    setSavedFilterPresets((prev) => prev.filter((p) => p.id !== presetId));
+  }, []);
   const [folderFilter, setFolderFilter] = useState(() => {
     try {
       const raw = localStorage.getItem("argon_cb_folder_filter_v4");
@@ -3637,6 +3744,188 @@ export default function App() {
                   </button>
                 </span>
               )}
+
+              <div className="hm-preset-trigger-wrap" ref={presetMenuRef}>
+                <button
+                  type="button"
+                  className={`hm-search-chip ${activeFilterPreset ? "wide active" : ""} ${
+                    presetMenuOpen ? "is-open" : ""
+                  }`}
+                  onClick={() => {
+                    setPresetMenuOpen((v) => !v);
+                    setPresetSaveOpen(false);
+                  }}
+                  title={
+                    activeFilterPreset
+                      ? `Active Filter Preset: ${activeFilterPreset.label} (click to switch or manage)`
+                      : savedFilterPresets.length > 0
+                      ? `Saved Filter Presets (${savedFilterPresets.length})`
+                      : "Saved Filter Presets (click to save or open presets)"
+                  }
+                  aria-expanded={presetMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label="Saved Filter Presets"
+                >
+                  <Bookmark size={11} />
+                  {activeFilterPreset && (
+                    <span className="hm-preset-btn-lbl">{activeFilterPreset.label}</span>
+                  )}
+                </button>
+
+                {presetMenuOpen && (
+                  <div className="hm-preset-menu" role="menu" aria-label="Saved Filter Presets">
+                    <div className="hm-preset-menu-head">
+                      <span>Saved Filter Presets</span>
+                      {savedFilterPresets.length > 0 && (
+                        <span className="hm-preset-menu-cnt">{savedFilterPresets.length}</span>
+                      )}
+                    </div>
+
+                    {savedFilterPresets.length > 0 ? (
+                      <div className="hm-preset-menu-list">
+                        {savedFilterPresets.map((preset) => {
+                          const isAct = activeFilterPreset?.id === preset.id;
+                          const tags = summarizeFilterPreset(preset);
+                          const liveCount = filterAndSortItems(
+                            rawItems,
+                            purgatoryOpen ? "__PURGATORY__" : folderFilter,
+                            preset.search,
+                            "newest",
+                            0,
+                            folderCombos,
+                            {
+                              favSet,
+                              pinSet,
+                              purgatorySet,
+                              notesMap,
+                              favoritesOnly: preset.searchFavOnly,
+                              searchAllFolders: preset.searchAllFolders,
+                              advancedFilter: preset.advancedFilter,
+                            }
+                          ).length;
+                          return (
+                            <button
+                              key={preset.id}
+                              type="button"
+                              role="menuitem"
+                              className={`hm-preset-menu-item ${isAct ? "active" : ""}`}
+                              onClick={() => handleApplySavedFilterPreset(preset)}
+                              title={
+                                isAct
+                                  ? `Click to turn off "${preset.label}"`
+                                  : `Apply "${preset.label}"`
+                              }
+                            >
+                              <div className="hm-preset-menu-row">
+                                <span className="hm-preset-menu-name">
+                                  {isAct ? <Check size={12} /> : <Bookmark size={11} />}
+                                  <span>{preset.label}</span>
+                                </span>
+                                <span className="hm-preset-menu-badge">{liveCount}</span>
+                              </div>
+                              {tags.length > 0 && (
+                                <div className="hm-preset-menu-tags">
+                                  {tags.slice(0, 4).join(" · ")}
+                                  {tags.length > 4 ? ` +${tags.length - 4}` : ""}
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="hm-preset-menu-empty">
+                        No presets saved yet. Apply any keywords/filters or click{" "}
+                        <strong>Manage in Detailed Filters…</strong> below.
+                      </div>
+                    )}
+
+                    <div className="hm-preset-menu-foot">
+                      {hasAnyTempFilter && !activeFilterPreset && (
+                        !presetSaveOpen ? (
+                          <button
+                            type="button"
+                            className="hm-preset-foot-btn is-save"
+                            onClick={() => {
+                              setPresetSaveName(
+                                suggestFilterPresetName({
+                                  search,
+                                  searchFavOnly,
+                                  searchAllFolders,
+                                  advancedFilter,
+                                })
+                              );
+                              setPresetSaveOpen(true);
+                            }}
+                          >
+                            <BookmarkPlus size={12} />
+                            <span>Save Current as Preset…</span>
+                          </button>
+                        ) : (
+                          <div className="hm-preset-inline-save">
+                            <input
+                              ref={presetSaveInputRef}
+                              type="text"
+                              value={presetSaveName}
+                              onChange={(e) => setPresetSaveName(e.target.value)}
+                              placeholder="Preset name…"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  const nm = presetSaveName.trim();
+                                  if (nm) {
+                                    handleSaveFilterPreset({
+                                      label: nm,
+                                      search,
+                                      searchFavOnly,
+                                      searchAllFolders,
+                                      advancedFilter,
+                                    });
+                                    setPresetSaveOpen(false);
+                                    setPresetMenuOpen(false);
+                                  }
+                                }
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="hm-btn hm-flt-preset-act is-update"
+                              disabled={!presetSaveName.trim()}
+                              onClick={() => {
+                                const nm = presetSaveName.trim();
+                                if (!nm) return;
+                                handleSaveFilterPreset({
+                                  label: nm,
+                                  search,
+                                  searchFavOnly,
+                                  searchAllFolders,
+                                  advancedFilter,
+                                });
+                                setPresetSaveOpen(false);
+                                setPresetMenuOpen(false);
+                              }}
+                            >
+                              <Check size={11} />
+                            </button>
+                          </div>
+                        )
+                      )}
+
+                      <button
+                        type="button"
+                        className="hm-preset-foot-btn"
+                        onClick={() => {
+                          setPresetMenuOpen(false);
+                          setFilterModalOpen(true);
+                        }}
+                      >
+                        <SlidersHorizontal size={12} />
+                        <span>Manage in Detailed Filters…</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {hasAnyTempFilter && (
@@ -4200,8 +4489,15 @@ export default function App() {
         isOpen={filterModalOpen}
         onClose={() => setFilterModalOpen(false)}
         activeFilter={advancedFilter}
-        onApplyFilter={(next) => setAdvancedFilter(next)}
-        onClearFilter={() => setAdvancedFilter(DEFAULT_ADVANCED_FILTER)}
+        onApplyFilter={(nextAdv, nextScope) => {
+          setAdvancedFilter(nextAdv);
+          if (nextScope && typeof nextScope === "object") {
+            setSearch(String(nextScope.search || ""));
+            setSearchFavOnly(Boolean(nextScope.searchFavOnly));
+            setSearchAllFolders(Boolean(nextScope.searchAllFolders));
+          }
+        }}
+        onClearFilter={clearAllTempFilters}
         rawItems={rawItems}
         folderFilter={purgatoryOpen ? "__PURGATORY__" : folderFilter}
         search={search}
@@ -4212,6 +4508,10 @@ export default function App() {
         notesMap={notesMap}
         searchFavOnly={searchFavOnly}
         searchAllFolders={searchAllFolders}
+        savedPresets={savedFilterPresets}
+        onSavePreset={handleSaveFilterPreset}
+        onDeletePreset={handleDeleteFilterPreset}
+        favIcon={favIcon}
         scopeLabel={
           purgatoryOpen
             ? "Purgatory"

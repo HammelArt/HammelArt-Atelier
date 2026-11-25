@@ -2,6 +2,17 @@
 
 All notable changes to **HammelArt Atelier** are documented in this file.
 
+## [v0.9.5-beta] - 2026-11-25 — Smart Saved Filter Presets & Pixaroma Node Support
+### Added
+- **Pixaroma Node Graph & LoRA Extraction (`metadata_engine.py`, `meta_version: 3`):** Added native support for `PixaromaPrompt` (`PromptState` + wired `text_in`), `PixaromaSwitch` (`SwitchState` / `input_N`), `PixaromaPauseText` (`PauseState`), `PixaromaAIPrompt`, `PixaromaLoraLoader` (`LoraLoaderState` active `on: true` LoRAs), and `PixaromaSaveImage` — automatically re-indexing existing library caches (`meta_version: 3`).
+- **Smart Filter Preset Manager (`FilterOverlayModal`):** Save, load, update, and delete dynamic filter presets directly inside **Detailed Media Filters** (`argon_cb_saved_filters_v1`, synced across Desktop & Browser sessions), complete with live rule-summary chips showing every filter inside a preset.
+- **Keywords, Favorites ★ & All Folders in Detailed Filters:** Added keyword search, **Favorites Only**, and **All Folders** toggles right inside the Detailed Filters modal (synced with the top bar) so saved presets capture the complete filter recipe in one click.
+- **Top-Bar 1-Click Preset Picker:** Added a Bookmark menu beside the search & filter chips showing saved presets with live dynamic match counts, 1-click toggle ON/OFF, and inline quick-saving of the active search.
+- **Multi-Select Aspect & Orientation Combos:** Orientation chips (`Portrait`, `Square`, `Landscape`) are now multi-selectable and combine cleanly (`OR`) with `Target Ratios` (e.g. `Portrait + 1:1`), alongside an always-present `Included:` summary line in the Detailed Filters modal so rule selection never shifts modal height.
+
+### Fixed
+- **Model Dropdown Visibility & Full SSD Filename Search:** Raised `.hm-themed-menu` stacking (`z-index: 9750`) so the **Checkpoint / Model** dropdown renders cleanly above the Detailed Media Filters modal (even with only 1 model), displays exact bare SSD model filenames, and updated keyword search (`presets.js`) to match full `search_blob` & real SSD model/LoRA filenames.
+
 ## [v0.9.4-beta.2] - 2026-11-25 — Desktop Fullscreen Ownership & Escape Hatches
 ### Fixed
 - **Screensaver / Nested Fullscreen Ownership Trap (`app_desktop.py`):** Preserved existing temporary fullscreen ownership (`lb_entered_fs`) when a nested fullscreen request (such as the Idle Screensaver) runs over an already-fullscreen Stage or Lightbox, and finalized UI restoration before clearing flags — preventing temporary screensaver/stage fullscreen from accidentally locking `desktop_window_state.json` into `"mode": "fullscreen"`.

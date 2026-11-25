@@ -32,6 +32,7 @@ export const SYNCED_STORAGE_KEYS = [
   "argon_cb_purgatory_cfg_v1",
   "argon_cb_perma_pins_v1",
   "argon_cb_lightbox_cfg_v1",
+  "argon_cb_saved_filters_v1",
   "hm_curation_v1",
 ];
 

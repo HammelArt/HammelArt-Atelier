@@ -57,7 +57,7 @@ export const DEFAULT_ADVANCED_FILTER = {
   maxMp: "",
   minWidth: "",
   minHeight: "",
-  orientation: "all", // "all" | "portrait" | "square" | "landscape"
+  orientations: [], // subset of ["portrait", "square", "landscape"]
   aspectPresets: [],
   datePreset: "all", // "all" | "today" | "7d" | "30d" | "older30" | "older90" | "custom"
   dateFrom: "",
@@ -70,14 +70,28 @@ export const DEFAULT_ADVANCED_FILTER = {
   hasNoteOnly: false,
 };
 
+function readOrientationsList(f) {
+  if (!f) return [];
+  if (Array.isArray(f.orientations)) {
+    return f.orientations.filter((o) => o === "portrait" || o === "square" || o === "landscape");
+  }
+  if (f.orientation && f.orientation !== "all") {
+    return [f.orientation];
+  }
+  return [];
+}
+
 export function cloneAdvancedFilter(src = DEFAULT_ADVANCED_FILTER) {
   const f = src || DEFAULT_ADVANCED_FILTER;
-  return {
+  const cloned = {
     ...DEFAULT_ADVANCED_FILTER,
     ...f,
     formats: Array.isArray(f.formats) ? [...f.formats] : [],
+    orientations: readOrientationsList(f),
     aspectPresets: Array.isArray(f.aspectPresets) ? [...f.aspectPresets] : [],
   };
+  delete cloned.orientation;
+  return cloned;
 }
 
 export function countActiveAdvancedFilters(f) {
@@ -89,7 +103,7 @@ export function countActiveAdvancedFilters(f) {
   if (f.minSizeMb !== "" || f.maxSizeMb !== "") count += 1;
   if (f.minMp !== "" || f.maxMp !== "") count += 1;
   if (f.minWidth !== "" || f.minHeight !== "") count += 1;
-  if (f.orientation && f.orientation !== "all") count += 1;
+  if (readOrientationsList(f).length > 0) count += 1;
   if (Array.isArray(f.aspectPresets) && f.aspectPresets.length > 0) count += 1;
   if (
     (f.datePreset && f.datePreset !== "all" && f.datePreset !== "custom") ||
@@ -104,6 +118,13 @@ export function countActiveAdvancedFilters(f) {
   if (f.pinnedOnly) count += 1;
   if (f.hasNoteOnly) count += 1;
   return count;
+}
+
+export function assetFilename(raw) {
+  if (raw == null) return "";
+  const s = String(raw).trim();
+  if (!s || s === "Unknown" || s === "—") return "";
+  return s.replace(/\\/g, "/").split("/").pop() || s;
 }
 
 export function extractItemExtension(filename = "") {
@@ -160,21 +181,22 @@ export function matchesAdvancedFilter(item, f, opts = {}, nowSec = Date.now() / 
   if (minW !== null && w < minW) return false;
   if (minH !== null && h < minH) return false;
 
-  if (f.orientation && f.orientation !== "all") {
+  const oriList = readOrientationsList(f);
+  const ratioList = Array.isArray(f.aspectPresets) ? f.aspectPresets : [];
+  if (oriList.length > 0 || ratioList.length > 0) {
     const bucket =
       item.aspect_bucket ||
       (w > 0 && h > 0 ? (w / h > 1.12 ? "landscape" : w / h < 0.88 ? "portrait" : "square") : "");
-    if (bucket !== f.orientation) return false;
-  }
-
-  if (Array.isArray(f.aspectPresets) && f.aspectPresets.length > 0) {
     const ar = Number(item.aspect_ratio) || (w > 0 && h > 0 ? w / h : 0);
-    if (ar <= 0) return false;
-    const hit = f.aspectPresets.some((id) => {
-      const target = PRESET_RATIO_MAP.get(id);
-      return target ? Math.abs(ar - target) / target <= 0.085 : false;
-    });
-    if (!hit) return false;
+    const hitOri = oriList.length > 0 && oriList.includes(bucket);
+    const hitRatio =
+      ratioList.length > 0 &&
+      ar > 0 &&
+      ratioList.some((id) => {
+        const target = PRESET_RATIO_MAP.get(id);
+        return target ? Math.abs(ar - target) / target <= 0.085 : false;
+      });
+    if (!hitOri && !hitRatio) return false;
   }
 
   const mtime = Number(item.mtime) || 0;
@@ -197,7 +219,9 @@ export function matchesAdvancedFilter(item, f, opts = {}, nowSec = Date.now() / 
   }
 
   if (f.model && f.model !== "all") {
-    if ((item.model_short || "") !== f.model) return false;
+    const itemModelFile = assetFilename(item.model);
+    const itemModelShort = String(item.model_short || "").trim();
+    if (itemModelFile !== f.model && itemModelShort !== f.model) return false;
   }
 
   const minDur = parseOptionalNum(f.minDurationSec);
@@ -219,4 +243,98 @@ export function matchesAdvancedFilter(item, f, opts = {}, nowSec = Date.now() / 
   if (f.hasNoteOnly && (!notesMap || !String(notesMap[key] || "").trim())) return false;
 
   return true;
+}
+
+export function normalizeSavedFilterPreset(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return {
+    id: String(src.id || `fp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`),
+    label: String(src.label || "Saved Filter").trim() || "Saved Filter",
+    search: String(src.search || ""),
+    searchFavOnly: Boolean(src.searchFavOnly),
+    searchAllFolders: Boolean(src.searchAllFolders),
+    advancedFilter: cloneAdvancedFilter(src.advancedFilter),
+    updatedAt: Number(src.updatedAt) || Date.now(),
+  };
+}
+
+export function hasAnyPresetRule(preset) {
+  if (!preset) return false;
+  return (
+    Boolean(String(preset.search || "").trim()) ||
+    Boolean(preset.searchFavOnly) ||
+    Boolean(preset.searchAllFolders) ||
+    countActiveAdvancedFilters(preset.advancedFilter) > 0
+  );
+}
+
+export function summarizeFilterPreset(preset) {
+  if (!preset) return [];
+  const tags = [];
+  const q = String(preset.search || "").trim();
+  if (q) tags.push(`"${q}"`);
+  if (preset.searchFavOnly) tags.push("★ Favorites");
+  if (preset.searchAllFolders) tags.push("All Folders");
+
+  const f = preset.advancedFilter || DEFAULT_ADVANCED_FILTER;
+  if (f.mediaType === "image") tags.push("Images");
+  else if (f.mediaType === "video") tags.push("Videos");
+  if (Array.isArray(f.formats) && f.formats.length > 0) {
+    tags.push(f.formats.map((x) => x.toUpperCase()).join(", "));
+  }
+  if (f.model && f.model !== "all") tags.push(f.model);
+  if (f.workflow === "with") tags.push("With Workflow");
+  else if (f.workflow === "without") tags.push("No Workflow");
+  if (f.minSizeMb !== "" || f.maxSizeMb !== "") {
+    tags.push(`${f.minSizeMb || "0"}–${f.maxSizeMb || "∞"} MB`);
+  }
+  if (f.minMp !== "" || f.maxMp !== "") {
+    tags.push(`${f.minMp || "0"}–${f.maxMp || "∞"} MP`);
+  }
+  if (f.minWidth !== "" || f.minHeight !== "") {
+    tags.push(`≥ ${f.minWidth || "?"}×${f.minHeight || "?"}`);
+  }
+  const oriTags = readOrientationsList(f);
+  if (oriTags.length > 0) {
+    tags.push(oriTags.map((o) => o[0].toUpperCase() + o.slice(1)).join(", "));
+  }
+  if (Array.isArray(f.aspectPresets) && f.aspectPresets.length > 0) {
+    tags.push(f.aspectPresets.join(", "));
+  }
+  if (f.datePreset && f.datePreset !== "all" && f.datePreset !== "custom") {
+    const dp = DATE_PRESETS.find((d) => d.id === f.datePreset);
+    tags.push(dp ? dp.label : f.datePreset);
+  } else if (f.dateFrom || f.dateTo) {
+    tags.push(`${f.dateFrom || "…"} → ${f.dateTo || "…"}`);
+  }
+  if (f.minDurationSec !== "" || f.maxDurationSec !== "") {
+    tags.push(`${f.minDurationSec || "0"}–${f.maxDurationSec || "∞"}s`);
+  }
+  if (f.hasAudio === "yes") tags.push("Audio: Yes");
+  else if (f.hasAudio === "no") tags.push("Audio: No");
+  if (f.pinnedOnly) tags.push("Pinned");
+  if (f.hasNoteOnly) tags.push("Has Note");
+  return tags;
+}
+
+export function suggestFilterPresetName(preset) {
+  const tags = summarizeFilterPreset(preset);
+  if (tags.length === 0) return "Custom Filter";
+  return tags.slice(0, 3).join(" · ").slice(0, 42);
+}
+
+function stableAdvancedKey(f) {
+  const n = cloneAdvancedFilter(f);
+  n.formats = [...n.formats].sort();
+  n.orientations = [...n.orientations].sort();
+  n.aspectPresets = [...n.aspectPresets].sort();
+  return JSON.stringify(n);
+}
+
+export function doesFilterPresetMatchCurrent(preset, current) {
+  if (!preset || !current) return false;
+  if (String(preset.search || "").trim() !== String(current.search || "").trim()) return false;
+  if (Boolean(preset.searchFavOnly) !== Boolean(current.searchFavOnly)) return false;
+  if (Boolean(preset.searchAllFolders) !== Boolean(current.searchAllFolders)) return false;
+  return stableAdvancedKey(preset.advancedFilter) === stableAdvancedKey(current.advancedFilter);
 }

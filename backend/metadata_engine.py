@@ -113,6 +113,88 @@ def detect_model_dialect(model_name: str, sampler_name: str = "", prompt_dict: O
     return "Custom" if model_name and model_name != "Unknown" else "Standard"
 
 
+def _parse_json_input(raw: Any) -> Dict[str, Any]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _resolve_switch_link(inputs: Dict[str, Any]) -> Any:
+    raw_sel = inputs.get("SwitchState", inputs.get("select", inputs.get("index", 1)))
+    try:
+        idx = int(str(raw_sel).strip())
+    except Exception:
+        idx = 1
+    chosen = inputs.get(f"input_{idx}")
+    if isinstance(chosen, list) or (isinstance(chosen, str) and chosen.strip()):
+        return chosen
+    for key in [*(f"input_{n}" for n in range(1, 9)), "on_true", "on_false", "true", "false"]:
+        cand = inputs.get(key)
+        if isinstance(cand, list) or (isinstance(cand, str) and cand.strip()):
+            return cand
+    return None
+
+
+def _resolve_pixaroma_text_node(
+    ctype: str,
+    inputs: Dict[str, Any],
+    trace_fn: Any,
+    prompt: Dict[str, Any],
+    visited: set,
+    depth: int,
+) -> Optional[str]:
+    if "PauseState" in inputs or "PixaromaPauseText" in ctype:
+        pst = _parse_json_input(inputs.get("PauseState"))
+        pause_text = str(pst.get("text") or "").strip()
+        mode = str(pst.get("mode") or "pass").strip().lower()
+        if mode != "pass" and pause_text:
+            return pause_text
+        t_link = inputs.get("text")
+        if isinstance(t_link, list) and len(t_link) >= 1:
+            traced = trace_fn(str(t_link[0]), prompt, visited, depth + 1)
+            if traced:
+                return traced
+        elif isinstance(t_link, str) and t_link.strip():
+            return t_link.strip()
+        return pause_text
+
+    if "PromptState" in inputs or "PixaromaPrompt" in ctype:
+        pst = _parse_json_input(inputs.get("PromptState"))
+        local_text = str(pst.get("text") or "").strip()
+        order = str(pst.get("order") or "wired").strip().lower()
+        sep = str(pst.get("sep") if pst.get("sep") is not None else ", ")
+        wired_text = ""
+        t_in = inputs.get("text_in")
+        if isinstance(t_in, list) and len(t_in) >= 1:
+            wired_text = trace_fn(str(t_in[0]), prompt, visited, depth + 1)
+        elif isinstance(t_in, str) and t_in.strip():
+            wired_text = t_in.strip()
+        parts = [local_text, wired_text] if order == "mine" else [wired_text, local_text]
+        parts = [p for p in parts if p]
+        return sep.join(parts) if len(parts) > 1 else (parts[0] if parts else "")
+
+    if "AIPromptState" in inputs or "PixaromaAIPrompt" in ctype:
+        ast = _parse_json_input(inputs.get("AIPromptState"))
+        ai_txt = str(ast.get("text") or ast.get("prompt") or "").strip()
+        if ai_txt:
+            return ai_txt
+
+    if "SwitchState" in inputs or "Switch" in ctype:
+        sw = _resolve_switch_link(inputs)
+        if isinstance(sw, list) and len(sw) >= 1:
+            return trace_fn(str(sw[0]), prompt, visited, depth + 1)
+        if isinstance(sw, str) and sw.strip():
+            return sw.strip()
+
+    return None
+
+
 def _trace_text_from_node(node_id: str, prompt: Dict[str, Any], visited: Optional[set] = None, depth: int = 0) -> str:
     if visited is None:
         visited = set()
@@ -157,6 +239,11 @@ def _trace_text_from_node(node_id: str, prompt: Dict[str, Any], visited: Optiona
             val = str(inputs.get(k) or "").strip()
             if val:
                 return val
+
+    # 2.5 Pixaroma Prompt / Switch / PauseText / AIPrompt nodes
+    pixa_res = _resolve_pixaroma_text_node(ctype, inputs, _trace_text_from_node, prompt, visited, depth)
+    if pixa_res is not None:
+        return pixa_res
 
     # 3. MiniMax / Wan / Video Text Encoders & ImageToVideo nodes
     if any(k in ctype for k in ("MiniMax", "Wan", "Video", "CLIPTextEncode")):
@@ -223,6 +310,10 @@ def _trace_negative_text_from_node(node_id: str, prompt: Dict[str, Any], visited
         ad_neg = str(inputs.get("negative_prompt") or "").strip()
         if ad_neg:
             return ad_neg
+
+    pixa_res = _resolve_pixaroma_text_node(ctype, inputs, _trace_negative_text_from_node, prompt, visited, depth)
+    if pixa_res is not None:
+        return pixa_res
 
     for key in ("negative_prompt", "text_negative", "negative", "text", "string", "value"):
         val = inputs.get(key)
@@ -354,7 +445,7 @@ def _find_active_decode_and_sampler(prompt: Dict[str, Any]) -> Tuple[Optional[Di
         inputs = node.get("inputs", {})
         if not isinstance(inputs, dict):
             continue
-        if any(k in ctype for k in ("ImageCurator", "SaveImage", "VideoCombine", "SaveVideo")):
+        if any(k in ctype for k in ("ImageCurator", "SaveImage", "PixaromaSaveImage", "VideoCombine", "SaveVideo")):
             img_link = inputs.get("images") or inputs.get("video")
             if isinstance(img_link, list) and len(img_link) >= 1:
                 dec_node = prompt.get(str(img_link[0]), {})
@@ -419,6 +510,23 @@ def _extract_loras_from_node(up_ctype: str, up_in: Dict[str, Any]) -> List[Dict[
                     sm = float(item.get("strength_model", item.get("strength", 1.0)))
                     sc = float(item.get("strength_clip", item.get("strength", sm)))
                     _append_lora_entry(found, item.get("lora"), sm, sc)
+        except Exception:
+            pass
+        return found
+
+    # 1.5 Pixaroma LoraLoader (LoraLoaderState JSON: {"loras": [{"name": "...", "on": true, "sm": 1, "sc": 1}, ...]})
+    if "LoraLoaderState" in up_in or "PixaromaLora" in up_ctype:
+        try:
+            data = _parse_json_input(up_in.get("LoraLoaderState"))
+            for item in (data.get("loras") or []):
+                if not isinstance(item, dict) or item.get("on") is not True:
+                    continue
+                raw_name = item.get("name") or item.get("lora")
+                if not raw_name:
+                    continue
+                sm = float(item.get("sm", item.get("strength_model", item.get("strength", 1.0))))
+                sc = float(item.get("sc", item.get("strength_clip", sm)))
+                _append_lora_entry(found, raw_name, sm, sc)
         except Exception:
             pass
         return found
@@ -1118,7 +1226,7 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
     short_model = _clean_asset_name(model_name)
 
     return {
-        "meta_version": 2,
+        "meta_version": 3,
         "width": width,
         "height": height,
         "resolution": f"{width}x{height}" if (width and height) else "Unknown",

@@ -208,7 +208,7 @@ class GalleryIndexer:
                 cached
                 and cached.get("mtime") == mtime
                 and cached.get("file_size_bytes") == size_bytes
-                and cached.get("meta_version") == 2
+                and cached.get("meta_version") == 3
                 and "width" in cached
             ):
                 record = dict(cached)
