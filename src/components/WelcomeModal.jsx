@@ -343,7 +343,7 @@ export default function WelcomeModal({
       return {
         mode: "stack",
         activeTabKey: "new",
-        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.6-beta"} (${newerReleases.length} releases)`,
+        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.6-beta.1"} (${newerReleases.length} releases)`,
         publishedAt: newerReleases[0]?.publishedAt || "",
         url: newerReleases[0]?.url || fallbackUrl,
         items: newerReleases,
@@ -842,9 +842,18 @@ export default function WelcomeModal({
                     customNodesPath: res.customNodesPath || activeCn,
                   });
                   requestComfyRefresh();
+                  window.dispatchEvent(
+                    new CustomEvent("hm:comfy-toast", {
+                      detail: {
+                        tone: "ok",
+                        text: "✓ Bridge Installed — Restart ComfyUI once!",
+                        durationMs: 4200,
+                      },
+                    })
+                  );
                   setComfyHubMsg({
                     type: "ok",
-                    text: `Installed ComfyUI-Atelier-Bridge (v${res.bridge_version || "0.9.6"}) into ${res.customNodesPath}. Restart ComfyUI once so ComfyUI loads it!`,
+                    text: `✓ Done! Installed ComfyUI-Atelier-Bridge (v${res.bridge_version || "0.9.6.1"}) into ${res.customNodesPath}. Step 2: Restart ComfyUI once (no Atelier restart needed)!`,
                   });
                 } else {
                   setComfyHubMsg({ type: "err", text: res?.error || "Install failed." });
@@ -1112,7 +1121,7 @@ export default function WelcomeModal({
                   <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
                   <div className="hm-update-title-row">
                     <span className="hm-update-ver-pill">
-                      Installed: v{updateInfo?.currentVersion || "0.9.6-beta"}
+                      Installed: v{updateInfo?.currentVersion || "0.9.6-beta.1"}
                     </span>
                     <span className="hm-update-mode-pill">
                       {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}

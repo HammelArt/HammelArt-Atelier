@@ -10881,7 +10881,91 @@ html[data-stage="light"] .hm-comfy-pill.active {
 }
 
 .hm-comfy-pill.is-needs_bridge {
-  border-color: rgba(245, 158, 11, 0.48);
+  border-color: rgba(245, 158, 11, 0.58);
+  background: rgba(245, 158, 11, 0.1);
+  animation: hm-comfy-needs-glow 2.4s ease-in-out infinite;
+}
+
+@keyframes hm-comfy-needs-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 14px rgba(245, 158, 11, 0.3);
+  }
+}
+
+.hm-comfy-toast {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 950;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  white-space: nowrap;
+  pointer-events: none;
+  background: var(--stage-glass);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid var(--stage-border-strong);
+  box-shadow: var(--stage-shadow);
+  color: var(--stage-text);
+  font-size: 11.5px;
+  font-weight: 700;
+  animation: hm-comfy-toast-fade 3.2s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.hm-comfy-toast.is-connected,
+.hm-comfy-toast.is-ok {
+  border-color: rgba(34, 197, 94, 0.55);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45), 0 0 16px rgba(34, 197, 94, 0.2);
+}
+
+.hm-comfy-toast.is-disconnected {
+  border-color: var(--stage-border-strong);
+  color: var(--stage-text-secondary);
+}
+
+.hm-comfy-toast-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--hm-accent-bright);
+}
+
+.hm-comfy-toast-dot.is-connected,
+.hm-comfy-toast-dot.is-ok {
+  background: #22c55e;
+  box-shadow: 0 0 9px rgba(34, 197, 94, 0.9);
+}
+
+.hm-comfy-toast-dot.is-disconnected {
+  background: transparent;
+  border: 1.5px solid var(--stage-text-muted);
+}
+
+@keyframes hm-comfy-toast-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  76% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
 }
 
 .hm-comfy-dot {

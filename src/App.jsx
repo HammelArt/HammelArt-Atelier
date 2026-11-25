@@ -656,7 +656,11 @@ export default function App() {
   });
   const [comfyPopoverOpen, setComfyPopoverOpen] = useState(false);
   const [comfyBusy, setComfyBusy] = useState(false);
-  const [comfyPopMsg, setComfyPopMsg] = useState(null);
+  const [comfyPopMsg, setComfyPopMsg] = useState(null); // { ok?: boolean, text: string } | null
+  const [comfyToast, setComfyToast] = useState(null); // { tone, text, key }
+  const comfyToastTimerRef = useRef(null);
+  const comfyFirstProbeDoneRef = useRef(false);
+  const prevComfyUiStateRef = useRef(null);
   const comfyPopoverRef = useRef(null);
   const comfyCfgRef = useRef(comfyCfg);
   comfyCfgRef.current = comfyCfg;
@@ -665,6 +669,14 @@ export default function App() {
     () => deriveComfyUiState(comfyCfg, comfyStatus),
     [comfyCfg, comfyStatus]
   );
+
+  const triggerComfyToast = useCallback((tone, text, durationMs = 3000) => {
+    if (comfyToastTimerRef.current) clearTimeout(comfyToastTimerRef.current);
+    setComfyToast({ tone, text, durationMs, key: Date.now() });
+    comfyToastTimerRef.current = setTimeout(() => {
+      setComfyToast(null);
+    }, durationMs);
+  }, []);
 
   const refreshComfyStatus = useCallback(async (overrideCfg = null) => {
     const activeCfg = overrideCfg || comfyCfgRef.current;
@@ -690,9 +702,34 @@ export default function App() {
         setComfyCfg(nextCfg);
       }
     }
-    publishComfyState(nextCfg, res);
+    const snap = publishComfyState(nextCfg, res);
+    if (!comfyFirstProbeDoneRef.current) {
+      comfyFirstProbeDoneRef.current = true;
+      prevComfyUiStateRef.current = snap.uiState;
+      if (snap.uiState === "connected") {
+        triggerComfyToast("connected", "ComfyUI Connected", 2800);
+      }
+    }
     return res;
-  }, []);
+  }, [triggerComfyToast]);
+
+  useEffect(() => {
+    if (!comfyFirstProbeDoneRef.current) return;
+    const prev = prevComfyUiStateRef.current;
+    if (prev === comfyUiState) return;
+    prevComfyUiStateRef.current = comfyUiState;
+
+    if (comfyUiState === "connected") {
+      triggerComfyToast("connected", "ComfyUI Connected", 3000);
+    } else if (prev === "connected" && comfyUiState === "sleeping") {
+      triggerComfyToast("disconnected", "ComfyUI Disconnected (Sleeping)", 3400);
+    } else if (
+      (prev === "connected" || prev === "sleeping") &&
+      (comfyUiState === "off" || comfyUiState === "detected")
+    ) {
+      triggerComfyToast("disconnected", "ComfyUI Disconnected", 2800);
+    }
+  }, [comfyUiState, triggerComfyToast]);
 
   useEffect(() => {
     publishComfyState(comfyCfg, comfyStatus);
@@ -712,15 +749,23 @@ export default function App() {
       setWelcomeInitialTab("comfy");
       setWelcomeOpen(true);
     };
+    const onCustomToast = (ev) => {
+      const detail = ev?.detail;
+      if (detail?.text) {
+        triggerComfyToast(detail.tone || "info", detail.text, detail.durationMs || 3400);
+      }
+    };
     window.addEventListener("hm:comfy-cfg-sync", onCfgSync);
     window.addEventListener("hm:comfy-refresh-request", onRefreshReq);
     window.addEventListener("hm:open-comfy-hub", onOpenHub);
+    window.addEventListener("hm:comfy-toast", onCustomToast);
     return () => {
       window.removeEventListener("hm:comfy-cfg-sync", onCfgSync);
       window.removeEventListener("hm:comfy-refresh-request", onRefreshReq);
       window.removeEventListener("hm:open-comfy-hub", onOpenHub);
+      window.removeEventListener("hm:comfy-toast", onCustomToast);
     };
-  }, [refreshComfyStatus]);
+  }, [refreshComfyStatus, triggerComfyToast]);
 
   useEffect(() => {
     const bootTimer = setTimeout(() => {
@@ -4136,8 +4181,8 @@ export default function App() {
               <button
                 type="button"
                 className={`hm-btn hm-comfy-pill is-${comfyUiState} ${
-                  comfyPopoverOpen ? "active is-open" : ""
-                }`}
+                  comfyStatus.restart_needed ? "is-restart" : ""
+                } ${comfyPopoverOpen ? "active is-open" : ""}`}
                 onClick={() => {
                   const nextOpen = !comfyPopoverOpen;
                   setComfyPopoverOpen(nextOpen);
@@ -4151,7 +4196,9 @@ export default function App() {
                     : comfyUiState === "detected"
                     ? `ComfyUI Bridge detected (${comfyStatus.url || "local"}) — Click to connect`
                     : comfyUiState === "needs_bridge"
-                    ? "ComfyUI detected — Click to install ComfyUI-Atelier-Bridge"
+                    ? comfyStatus.restart_needed
+                      ? "Bridge Installed — Restart ComfyUI once to activate"
+                      : "ComfyUI detected — Click to install ComfyUI-Atelier-Bridge"
                     : "ComfyUI Integration (Off — Click to link or open Setup)"
                 }
                 aria-expanded={comfyPopoverOpen}
@@ -4167,10 +4214,25 @@ export default function App() {
                       ? "Sleeping"
                       : comfyUiState === "detected"
                       ? "Detected"
+                      : comfyStatus.restart_needed
+                      ? "Restart"
                       : "Setup"}
                   </span>
                 )}
               </button>
+
+              {comfyToast && !comfyPopoverOpen && (
+                <div
+                  key={comfyToast.key}
+                  className={`hm-comfy-toast is-${comfyToast.tone}`}
+                  style={{ animationDuration: `${comfyToast.durationMs || 3000}ms` }}
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span className={`hm-comfy-toast-dot is-${comfyToast.tone}`} aria-hidden="true" />
+                  <span>{comfyToast.text}</span>
+                </div>
+              )}
 
               {comfyPopoverOpen && (
                 <div className="hm-comfy-popover" role="dialog" aria-label="ComfyUI Connection">
@@ -4237,10 +4299,21 @@ export default function App() {
                               customNodesPath: res.customNodesPath || comfyCfg.customNodesPath,
                             });
                             setComfyCfg(next);
-                            setComfyPopMsg("Installed! Restart ComfyUI once to activate.");
+                            setComfyPopMsg({
+                              ok: true,
+                              text: "✓ Done! Bridge installed — restart ComfyUI once to connect.",
+                            });
+                            triggerComfyToast(
+                              "ok",
+                              "✓ Bridge Installed — Restart ComfyUI once!",
+                              4200
+                            );
                             await refreshComfyStatus(next);
                           } else {
-                            setComfyPopMsg(res?.error || "Install failed.");
+                            setComfyPopMsg({
+                              ok: false,
+                              text: res?.error || "Install failed.",
+                            });
                           }
                         } finally {
                           setComfyBusy(false);
@@ -4252,11 +4325,20 @@ export default function App() {
                         {comfyBusy
                           ? "Installing…"
                           : comfyStatus.restart_needed
-                          ? "Bridge Installed (Restart ComfyUI)"
+                          ? "✓ Installed — Restart ComfyUI Once"
                           : "1-Click Install Atelier Bridge"}
                       </span>
                     </button>
                   ) : null}
+
+                  {comfyPopMsg?.text && (
+                    <div
+                      className={`hm-welcome-status ${comfyPopMsg.ok ? "is-ok" : "is-err"}`}
+                      style={{ margin: 0, fontSize: 11.5, padding: "7px 10px" }}
+                    >
+                      {comfyPopMsg.text}
+                    </div>
+                  )}
 
                   <button
                     type="button"
@@ -4277,8 +4359,6 @@ export default function App() {
                         : "Enable ComfyUI Link"}
                     </span>
                   </button>
-
-                  {comfyPopMsg && <div className="lb-workflow-msg">{comfyPopMsg}</div>}
 
                   {(comfyStatus.rootPath || comfyCfg.rootPath) && (
                     <div className="hm-comfy-folders-wrap">
@@ -4314,7 +4394,11 @@ export default function App() {
                                   customNodesPath:
                                     comfyStatus.customNodesPath || comfyCfg.customNodesPath,
                                 });
-                                if (!r?.ok) setComfyPopMsg(r?.error || `Could not open ${f.label}`);
+                                if (!r?.ok)
+                                  setComfyPopMsg({
+                                    ok: false,
+                                    text: r?.error || `Could not open ${f.label}`,
+                                  });
                               }}
                               title={fInfo?.path || `Open ${f.label} folder`}
                             >

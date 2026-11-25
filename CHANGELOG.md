@@ -2,6 +2,11 @@
 
 All notable changes to **HammelArt Atelier** are documented in this file.
 
+## [v0.9.6-beta.1] - 2026-11-25 — Live ComfyUI Status Toast & Clearer Install Feedback
+### Improved
+- **Fading ComfyUI Status Toast (`App.jsx`):** Added a clean, non-blocking fading HUD pill directly beneath the top-right `ComfyUI` pill whenever ComfyUI connects (`ComfyUI Connected`), closes (`ComfyUI Disconnected (Sleeping)`), or disconnects (`ComfyUI Disconnected`).
+- **Clearer Bridge Setup & Done Confirmation (`App.jsx`, `WelcomeModal.jsx`):** Added a subtle attention pulse on the top-right `ComfyUI Setup` / `Restart` pill whenever a live ComfyUI session is detected nearby without the bridge, plus bright green `.is-ok` confirmation + floating `"✓ Bridge Installed — Restart ComfyUI once!"` feedback immediately on 1-click install.
+
 ## [v0.9.6-beta] - 2026-11-25 — ComfyUI Bridge, Auto-Installer & Smart Sleeping Mode
 ### Added
 - **Zero-Node Companion Bridge (`bridge/ComfyUI-Atelier-Bridge/`):** Bundled lightweight extension (`NODE_CLASS_MAPPINGS = {}` + `WEB_DIRECTORY = "./web"`) that loads silently across every ComfyUI tab (Browser, Portable, Desktop Electron, EzI/Tauri) — no tracker nodes required on workflows.
