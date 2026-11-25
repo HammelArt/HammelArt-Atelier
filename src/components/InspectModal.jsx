@@ -161,7 +161,12 @@ export default function InspectModal({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fullscreen: false }),
-      }).catch(() => {});
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.ok) window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: Boolean(d.fullscreen) }));
+        })
+        .catch(() => {});
     }
   }, []);
 
@@ -240,8 +245,11 @@ export default function InspectModal({
             try {
               host.requestFullscreen?.().catch?.(() => {});
             } catch {}
-          } else if (d.already_fullscreen) {
-            desktopFsRef.current = false;
+          } else {
+            window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: Boolean(d.fullscreen) }));
+            if (d.already_fullscreen) {
+              desktopFsRef.current = false;
+            }
           }
         })
         .catch(() => {

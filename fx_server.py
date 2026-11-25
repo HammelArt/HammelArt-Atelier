@@ -1773,7 +1773,9 @@ def create_app(
             body = await request.json()
         except Exception:
             body = {}
-        want = body.get("fullscreen") if isinstance(body, dict) else None
+        want: Any = None
+        if isinstance(body, dict):
+            want = "status" if body.get("status") else body.get("fullscreen")
         try:
             res = await asyncio.to_thread(on_fullscreen_toggle, want)
             if isinstance(res, dict):

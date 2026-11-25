@@ -563,7 +563,7 @@ def main() -> None:
         "hwnd": 0,
         "lb_entered_fs": False,
         "saved": None,
-        "os_fullscreen": False,
+        "os_fullscreen": saved_geo["mode"] == "fullscreen",
         "last_normal": {
             "x": saved_geo["x"],
             "y": saved_geo["y"],
@@ -681,7 +681,7 @@ def main() -> None:
             hwnd=h_cur,
         )
 
-    def _on_fullscreen_toggle(want: bool | None) -> dict:
+    def _on_fullscreen_toggle(want: bool | str | None) -> dict:
         w = win_state.get("win")
         if w is None:
             return {"ok": False, "fullscreen": False, "already_fullscreen": False}
@@ -694,16 +694,20 @@ def main() -> None:
             or is_fs_now
             or (form is not None and getattr(form, "is_fullscreen", False))
         )
+        if want == "status":
+            return {"ok": True, "fullscreen": cur_fs, "already_fullscreen": cur_fs}
+
         is_app_toggle = want is None
         target = (not cur_fs) if is_app_toggle else bool(want)
 
         if target:
             if cur_fs:
-                # App window was already fullscreen; Lightbox only uses CSS black stage & won't un-fullscreen app on exit.
-                win_state["lb_entered_fs"] = False
+                # Already fullscreen: keep existing temporary ownership intact so a nested
+                # Screensaver/Lightbox call never traps an active Stage/Lightbox owner in OS fullscreen.
                 _apply_win32_chrome("HammelArt Atelier", apply_icon=False, is_fullscreen=True, hwnd=hwnd)
                 return {"ok": True, "fullscreen": True, "already_fullscreen": True}
 
+            win_state["lb_entered_fs"] = not is_app_toggle
             if wf is not None and form is not None:
                 def _enter():
                     WinForms = wf.WinForms
@@ -737,17 +741,14 @@ def main() -> None:
                 w.toggle_fullscreen()
 
             win_state["os_fullscreen"] = True
-            win_state["lb_entered_fs"] = not is_app_toggle
             return {"ok": True, "fullscreen": True, "already_fullscreen": False}
 
-        # Exiting Lightbox fullscreen (ignore explicit want=False if Lightbox did not enter OS fullscreen)
+        # Exiting Lightbox/Stage/Screensaver fullscreen (ignore want=False if user/boot owned app fullscreen)
         if not is_app_toggle and not win_state["lb_entered_fs"]:
             return {"ok": True, "fullscreen": cur_fs, "already_fullscreen": cur_fs}
 
-        win_state["lb_entered_fs"] = False
         saved = win_state.get("saved")
         win_state["saved"] = None
-        win_state["os_fullscreen"] = False
 
         if wf is not None and form is not None:
             def _exit():
@@ -781,12 +782,17 @@ def main() -> None:
                 dwmapi.DwmSetWindowAttribute(h, 33, ctypes.byref(c_round), ctypes.sizeof(c_round))
 
             _run_on_form_ui(wf, form, _exit)
+            win_state["os_fullscreen"] = False
+            win_state["lb_entered_fs"] = False
             _apply_win32_chrome("HammelArt Atelier", apply_icon=False, is_fullscreen=False, hwnd=win_state.get("hwnd", 0))
         else:
             if cur_fs:
                 w.toggle_fullscreen()
+            win_state["os_fullscreen"] = False
+            win_state["lb_entered_fs"] = False
             _apply_win32_chrome("HammelArt Atelier", apply_icon=False, is_fullscreen=False, hwnd=h_cur)
 
+        _schedule_save_window_state()
         return {"ok": True, "fullscreen": False, "already_fullscreen": False}
 
     def _on_restart() -> None:

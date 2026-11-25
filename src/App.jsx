@@ -17,6 +17,8 @@ import {
   Check,
   HelpCircle,
   Upload,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { HAMMELART_CREST_PATH, ACCENT_SLOTS, applyThemeToDOM } from "./theme";
 import { FavMark, useCuration } from "./utils/curation";
@@ -718,11 +720,65 @@ export default function App() {
     } catch {}
   }, [folderSidebarMode]);
 
+  const [desktopFsActive, setDesktopFsActive] = useState(false);
+
   useEffect(() => {
     const syncFs = () => setIsNativeFs(Boolean(document.fullscreenElement));
     document.addEventListener("fullscreenchange", syncFs);
-    return () => document.removeEventListener("fullscreenchange", syncFs);
+    const onDesktopFsSync = (e) => {
+      if (typeof e?.detail === "boolean") setDesktopFsActive(e.detail);
+    };
+    window.addEventListener("hm:desktop-fs-sync", onDesktopFsSync);
+    if (typeof window !== "undefined" && window.pywebview) {
+      fetch("/api/desktop-fullscreen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: true }),
+      })
+        .then((r) => (r.ok ? r.json().catch(() => null) : null))
+        .then((d) => {
+          if (d?.ok && d?.desktop) setDesktopFsActive(Boolean(d.fullscreen));
+        })
+        .catch(() => {});
+    }
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFs);
+      window.removeEventListener("hm:desktop-fs-sync", onDesktopFsSync);
+    };
   }, []);
+
+  const toggleAppFullscreen = useCallback(() => {
+    fetch("/api/desktop-fullscreen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.desktop) {
+          const fsNow = Boolean(d.fullscreen);
+          setDesktopFsActive(fsNow);
+          window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: fsNow }));
+        } else {
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen?.().catch(() => {});
+          } else {
+            document.exitFullscreen?.().catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const onGlobalF11 = (e) => {
+      if (e.key !== "F11") return;
+      e.preventDefault();
+      toggleAppFullscreen();
+    };
+    window.addEventListener("keydown", onGlobalF11);
+    return () => window.removeEventListener("keydown", onGlobalF11);
+  }, [toggleAppFullscreen]);
 
   const screensaverDesktopFsRef = useRef(false);
   useEffect(() => {
@@ -737,13 +793,19 @@ export default function App() {
         .then((res) => (res.ok ? res.json().catch(() => null) : null))
         .then((data) => {
           if (data?.ok) {
+            window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: Boolean(data.fullscreen) }));
             const owned = !data.already_fullscreen;
             if (cancelled && owned) {
               fetch("/api/desktop-fullscreen", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ fullscreen: false }),
-              }).catch(() => {});
+              })
+                .then((r) => (r.ok ? r.json().catch(() => null) : null))
+                .then((d) => {
+                  if (d?.ok) window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: Boolean(d.fullscreen) }));
+                })
+                .catch(() => {});
             } else {
               screensaverDesktopFsRef.current = owned;
             }
@@ -756,7 +818,14 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fullscreen: false }),
-      }).catch(() => {});
+      })
+        .then((res) => (res.ok ? res.json().catch(() => null) : null))
+        .then((data) => {
+          if (data?.ok) {
+            window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: Boolean(data.fullscreen) }));
+          }
+        })
+        .catch(() => {});
     }
     return () => {
       cancelled = true;
@@ -1353,27 +1422,6 @@ export default function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const k = e.key.toLowerCase();
       const H = kbHandlersRef.current;
-
-      if (e.key === "F11") {
-        e.preventDefault();
-        fetch("/api/desktop-fullscreen", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        })
-          .then((r) => (r.ok ? r.json() : null))
-          .then((d) => {
-            if (!d?.desktop) {
-              if (!document.fullscreenElement) {
-                document.documentElement.requestFullscreen?.().catch(() => {});
-              } else {
-                document.exitFullscreen?.().catch(() => {});
-              }
-            }
-          })
-          .catch(() => {});
-        return;
-      }
 
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && k === "a") {
         if (
@@ -3680,6 +3728,16 @@ export default function App() {
               {updateInfo?.updateAvailable ? (
                 <span className="hm-update-dot" aria-hidden="true" />
               ) : null}
+            </button>
+
+            <button
+              type="button"
+              className={`hm-btn hm-help-btn hm-fs-btn ${isNativeFs || desktopFsActive ? "active is-fs" : ""}`}
+              onClick={toggleAppFullscreen}
+              title={isNativeFs || desktopFsActive ? "Exit Fullscreen (F11)" : "Toggle Fullscreen (F11)"}
+              aria-label={isNativeFs || desktopFsActive ? "Exit Fullscreen" : "Toggle Fullscreen"}
+            >
+              {isNativeFs || desktopFsActive ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
             </button>
           </div>
         </div>

@@ -43,7 +43,12 @@ export function useStageFullscreen(stageRef, { escapeDisabled = false } = {}) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ fullscreen: false }),
-      }).catch(() => {});
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          if (d?.ok) window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: Boolean(d.fullscreen) }));
+        })
+        .catch(() => {});
     }
   }, [stageRef]);
 
@@ -63,6 +68,7 @@ export function useStageFullscreen(stageRef, { escapeDisabled = false } = {}) {
         const data = res.ok ? await res.json().catch(() => null) : null;
         if (data?.ok) {
           desktopFsOwnedRef.current = !data.already_fullscreen;
+          window.dispatchEvent(new CustomEvent("hm:desktop-fs-sync", { detail: Boolean(data.fullscreen) }));
           return;
         }
       } catch {}

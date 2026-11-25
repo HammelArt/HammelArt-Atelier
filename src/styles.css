@@ -7625,6 +7625,11 @@ button.hm-sb-count:hover {
   box-shadow: 0 0 12px rgba(34, 197, 94, 0.25);
 }
 
+.hm-fs-btn.is-fs {
+  border-color: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.65) !important;
+  box-shadow: 0 0 12px rgba(var(--hm-accent-rgb, 168, 85, 247), 0.28);
+}
+
 .hm-update-dot {
   position: absolute;
   top: -3px;

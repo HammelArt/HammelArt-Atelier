@@ -2,6 +2,11 @@
 
 All notable changes to **HammelArt Atelier** are documented in this file.
 
+## [v0.9.4-beta.2] - 2026-11-25 — Desktop Fullscreen Ownership & Escape Hatches
+### Fixed
+- **Screensaver / Nested Fullscreen Ownership Trap (`app_desktop.py`):** Preserved existing temporary fullscreen ownership (`lb_entered_fs`) when a nested fullscreen request (such as the Idle Screensaver) runs over an already-fullscreen Stage or Lightbox, and finalized UI restoration before clearing flags — preventing temporary screensaver/stage fullscreen from accidentally locking `desktop_window_state.json` into `"mode": "fullscreen"`.
+- **Global `F11` & Top-Bar Exit Fullscreen Button:** Moved `F11` into an always-active global listener (works even with modals/overlays open) and added a synced top-right Fullscreen / Exit Fullscreen button next to `?` so Desktop and Browser fullscreen are always one click away.
+
 ## [v0.9.4-beta.1] - 2026-11-25 — Fixed-Size Help Modal & Unified Tab Layout
 ### Changed
 - **Fixed-Height Welcome & Help Shell:** Locked `.hm-welcome-modal` to a steady middleground frame (`900px` wide, `min(86vh, 710px)` tall) with `scrollbar-gutter: stable` and automatic scroll-to-top on tab switch so the header, tabs, and footer buttons stay pixel-locked across all 5 tabs.
