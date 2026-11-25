@@ -2,6 +2,11 @@
 
 All notable changes to **HammelArt Atelier** are documented in this file.
 
+## [v0.9.4-beta.1] - 2026-11-25 — Fixed-Size Help Modal & Unified Tab Layout
+### Changed
+- **Fixed-Height Welcome & Help Shell:** Locked `.hm-welcome-modal` to a steady middleground frame (`900px` wide, `min(86vh, 710px)` tall) with `scrollbar-gutter: stable` and automatic scroll-to-top on tab switch so the header, tabs, and footer buttons stay pixel-locked across all 5 tabs.
+- **Reorganized 5-Tab Internals:** Switched `01 Welcome` quick-steps to a balanced 2×2 grid, added in-place indexing & media capability cards to `02 First Root Folder`, balanced `03 Mode Overview` grid alignment, pinned the search/filter toolbar inside `04 Shortcuts & Controls`, and made `05 Updates` patch notes flex-fill cleanly without double scrollbars or bottom clipping.
+
 ## [v0.9.4-beta] - 2026-11-25 — Lightbox UX Polish & Cumulative Release History
 ### Added
 - **Mouse-Wheel Filmstrip Scrolling:** Vertical and horizontal mouse-wheel scrolling now smoothly scrubs `.lb-filmstrip-track` left and right inside the Lightbox.

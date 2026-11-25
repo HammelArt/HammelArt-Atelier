@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Download, ExternalLink, RefreshCw, RotateCw, Search } from "lucide-react";
 import { HAMMELART_CREST_PATH } from "../theme";
 
@@ -267,6 +267,11 @@ export default function WelcomeModal({
   const [shortcutFilter, setShortcutFilter] = useState("all");
   const [shortcutQuery, setShortcutQuery] = useState("");
   const [selectedReleaseTab, setSelectedReleaseTab] = useState("auto");
+  const bodyRef = useRef(null);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [activeTab]);
 
   useEffect(() => {
     if (isOpen) {
@@ -313,7 +318,7 @@ export default function WelcomeModal({
       return {
         mode: "stack",
         activeTabKey: "new",
-        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.4-beta"} (${newerReleases.length} releases)`,
+        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.4-beta.1"} (${newerReleases.length} releases)`,
         publishedAt: newerReleases[0]?.publishedAt || "",
         url: newerReleases[0]?.url || fallbackUrl,
         items: newerReleases,
@@ -510,7 +515,7 @@ export default function WelcomeModal({
           })}
         </div>
 
-        <div className="hm-welcome-body">
+        <div ref={bodyRef} className="hm-welcome-body">
           {activeTab === "welcome" && (
             <div className="hm-welcome-pane" data-pane="welcome">
               <div className="hm-welcome-hero-card">
@@ -619,6 +624,23 @@ export default function WelcomeModal({
                     This first folder gets you rolling right away. You can mount additional root folders across
                     any SSD anytime via <strong>Mount Root Folder…</strong> at the bottom of the{" "}
                     <strong>Folders</strong> sidebar or inside <strong>Customize → Mounted Root Libraries</strong>.
+                  </p>
+                </div>
+              </div>
+
+              <div className="hm-root-tips-grid">
+                <div className="hm-root-tip-card">
+                  <strong>Non-Destructive Library Indexing</strong>
+                  <p>
+                    Atelier indexes folders directly in-place — browsing, tagging, and themes never duplicate or
+                    alter your source files unless you explicitly move or purge them.
+                  </p>
+                </div>
+                <div className="hm-root-tip-card">
+                  <strong>Images, Video &amp; AI Prompt Telemetry</strong>
+                  <p>
+                    Native playback &amp; fast thumbnails for PNG, JPG, WebP, AVIF, GIF, MP4, and WebM — with
+                    automatic ComfyUI &amp; A1111 prompt inspection.
                   </p>
                 </div>
               </div>
@@ -749,7 +771,7 @@ export default function WelcomeModal({
                   <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
                   <div className="hm-update-title-row">
                     <span className="hm-update-ver-pill">
-                      Installed: v{updateInfo?.currentVersion || "0.9.4-beta"}
+                      Installed: v{updateInfo?.currentVersion || "0.9.4-beta.1"}
                     </span>
                     <span className="hm-update-mode-pill">
                       {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}
