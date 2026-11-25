@@ -14,6 +14,7 @@ https://github.com/user-attachments/assets/15053f2b-abd0-4ba1-9c59-26252fe9682a
 - **Multi-Root Organizer & Hold-to-Drag:** Mount multiple libraries across drives, save Folder Combos, hide folders non-destructively, toggle count vs disk-size readouts, hold-drag tiles straight into folders, or drop files in from Windows Explorer.
 - **Two-Tier Safe Purgatory & 120fps FX:** Stage rejects safely inside Purgatory (`X` / `Del`), rescue anytime, or permanently remove via configurable deletion effects (`Ember`, `Lightning`, `Poof`, `Instant`).
 - **Fast Search & Detailed Media Filters:** Instant keyword, prompt, model, note, and curation search backed by a deep multi-facet filter modal.
+- **1-Click Zero-Node ComfyUI Bridge:** Connects silently across all ComfyUI tabs (Browser, Portable, Desktop Electron, EzI/Tauri) with auto-detected paths, a 1-click installer inside `? → 05 ComfyUI`, **Open in ComfyUI** (opens workflows in a brand-new tab + brings ComfyUI forward), Smart **Sleeping Mode**, Explorer Quick-Open Folders, and `Save Workflow (.json)`.
 - **100% Isolated Personal Storage (`userdata/`):** Mounted folders, thumbnails, favorites, pins, notes, presets, themes, and window state stay strictly inside the gitignored `userdata/` folder — leaving your source media folders untouched and `git pull` updates completely safe.
 
 ---
@@ -56,6 +57,14 @@ Open **Customize** (or **Edit Wall** in Wall Mode) for a real-time 16:10 scaled 
 Slice large libraries in milliseconds by media type, file extension (`PNG`, `JPG`, `WEBP`, `AVIF`, `GIF`, `MP4`, `WEBM`, `MOV`), embedded workflow metadata presence, checkpoint/model, curated pins/notes, megapixels, exact pixel dimensions, aspect ratios, file size (`MB`), and file age.
 
 ![Detailed Media Filters Modal](docs/screenshots/07_detailed_filters.png)
+
+### 8. Zero-Node ComfyUI Bridge (`v0.9.6-beta`)
+Link HammelArt Atelier directly to your live ComfyUI session without cluttering workflows or adding tracker nodes (`bridge/ComfyUI-Atelier-Bridge/`):
+- **1-Click Torpedo Install & Auto-Sync:** Start ComfyUI once, open the top-right **ComfyUI** pill or **`? → 05 ComfyUI`**, and click **Install Atelier Bridge** — Atelier locates your exact `custom_nodes` directory via local `127.0.0.1` endpoints and keeps an installed bridge automatically updated during Atelier updates.
+- **1-Click "Open in ComfyUI":** Right-click any render → **`Open ▸ ComfyUI`** or click **`Open in ComfyUI`** in the Lightbox Inspector to open the embedded workflow in a **brand-new temporary ComfyUI tab** (preserving your active workspace) and bring the ComfyUI window forward cleanly.
+- **Smart Sleeping Mode, Quick-Open Folders & Clean Saving:** Dim Comfy actions quietly into **Sleeping Mode** when ComfyUI is closed (waking automatically on boot), jump straight into `Workflows`, `Output`, `Input`, `Custom Nodes`, or `Models` in Windows Explorer, and save `.json` workflows pre-pointed at `<comfy_root>/user/default/workflows`.
+
+![Zero-Node ComfyUI Bridge Hub](docs/screenshots/08_comfyui_bridge.png)
 
 ---
 
@@ -123,7 +132,7 @@ When the **Welcome Guide** appears on launch, switch to **02 First Root Folder**
 
 ## Safe Updates & Private Data (`userdata/`)
 
-- **In-App Updater (`?` → `05 Updates`):** Atelier checks GitHub quietly on launch. When a newer release drops, the **`?`** button in the top bar lights up with a glowing green dot (`Update available`) — clicking it opens **`05 Updates`** directly with the release patch notes, **Check for Updates**, **Open on GitHub**, **Run Update** (works safely for both Git clones and Portable ZIP installs), and **Restart Atelier**.
+- **In-App Updater (`?` → `06 Updates`):** Atelier checks GitHub quietly on launch. When a newer release drops, the **`?`** button in the top bar lights up with a glowing green dot (`Update available`) — clicking it opens **`06 Updates`** directly with the release patch notes, **Check for Updates**, **Open on GitHub**, **Run Update** (works safely for both Git clones and Portable ZIP installs), and **Restart Atelier**. If you have `ComfyUI-Atelier-Bridge` installed, Atelier updates it automatically alongside the app.
 - **Terminal / Batch Update:** You can also run **`Update_HammelArt.bat`** (or `git pull --ff-only`) inside the folder anytime.
 
 Everything personal is stored strictly inside the gitignored **`userdata/`** folder:
