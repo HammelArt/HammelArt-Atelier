@@ -36,9 +36,11 @@ import {
   Wind,
   Flame,
   CopyPlus,
+  Workflow,
 } from "lucide-react";
 import { FavMark } from "./curation";
 import { getMediaUrl, itemKey } from "./lightboxFlight";
+import { loadComfyCfg, openWorkflowInComfyRequest } from "./comfyBridge";
 
 export async function openInExplorerRequest(item) {
   if (!item) return { ok: false, error: "No item" };
@@ -300,12 +302,41 @@ export async function copyBatchItemsRequest(items = [], targetFolder = null, { p
 }
 
 export async function checkComfyStatus() {
-  // Live ComfyUI bridge probe is postponed until the opt-in ComfyUI Integration phase.
-  return false;
+  try {
+    const res = await fetch("/api/comfy-status", { cache: "no-store" });
+    if (!res.ok) return false;
+    const data = await res.json();
+    return Boolean(data?.state === "ready");
+  } catch {
+    return false;
+  }
 }
 
-function makeOpenSubmenu(item, comfyOnline, curation) {
+function resolveComfyInfo(comfyStateOrBool) {
+  if (comfyStateOrBool && typeof comfyStateOrBool === "object") {
+    const cfg = comfyStateOrBool.cfg || loadComfyCfg();
+    const uiState = comfyStateOrBool.uiState || "off";
+    return {
+      cfg,
+      uiState,
+      enabled: Boolean(cfg.enabled),
+      ready: uiState === "connected",
+    };
+  }
+  const cfg = loadComfyCfg();
+  const ready = Boolean(comfyStateOrBool);
+  return {
+    cfg,
+    uiState: ready && cfg.enabled ? "connected" : cfg.enabled ? "sleeping" : "off",
+    enabled: Boolean(cfg.enabled) || ready,
+    ready,
+  };
+}
+
+function makeOpenSubmenu(item, comfyStateOrBool, curation) {
   const mediaUrl = getMediaUrl(item);
+  const comfy = resolveComfyInfo(comfyStateOrBool);
+  const hasWf = Boolean(item?.has_workflow);
 
   const subs = [
     {
@@ -330,6 +361,39 @@ function makeOpenSubmenu(item, comfyOnline, curation) {
     },
   ];
 
+  if (comfy.enabled) {
+    const canSend = comfy.ready && hasWf;
+    let hint = "Open workflow in a new ComfyUI tab";
+    if (comfy.uiState === "sleeping") {
+      hint = "ComfyUI is currently sleeping (not running)";
+    } else if (comfy.uiState === "needs_bridge") {
+      hint = "Install ComfyUI-Atelier-Bridge in ? → 05 ComfyUI";
+    } else if (!hasWf) {
+      hint = "No embedded ComfyUI workflow on this file";
+    }
+
+    subs.push({
+      id: "open-comfyui",
+      label: "ComfyUI",
+      hint,
+      disabled: !canSend,
+      icon: <Workflow size={15} />,
+      onSelect: async () => {
+        if (!canSend) return;
+        const res = await openWorkflowInComfyRequest(item, comfy.cfg);
+        if (res?.ok) {
+          curation?.showToast?.(
+            res.queued_for_open
+              ? "Opening ComfyUI & loading workflow…"
+              : "Opened workflow in a new ComfyUI tab"
+          );
+        } else {
+          curation?.showToast?.(res?.error || "Could not open workflow in ComfyUI");
+        }
+      },
+    });
+  }
+
   return subs;
 }
 
@@ -340,6 +404,7 @@ export function buildTileRadialItems({
   item,
   curation,
   comfyOnline,
+  comfyState,
   inPurgatoryView = false,
   batchCount = 1,
   queuedTableCount = 0,
@@ -392,11 +457,11 @@ export function buildTileRadialItems({
       id: "tile-open",
       label: "Open",
       hint:
-        comfyOnline && item?.has_workflow
+        resolveComfyInfo(comfyState ?? comfyOnline).enabled
           ? "Open in Explorer, Browser or ComfyUI"
           : "Open in Explorer or Browser",
       icon: <ExternalLink size={16} />,
-      children: makeOpenSubmenu(item, comfyOnline, curation),
+      children: makeOpenSubmenu(item, comfyState ?? comfyOnline, curation),
     },
     ...(isPurg
       ? [
@@ -643,6 +708,7 @@ export function buildLightboxRadialItems({
   item,
   curation,
   comfyOnline,
+  comfyState,
   isZoomed,
   pureView,
   onResetFit,
@@ -730,11 +796,11 @@ export function buildLightboxRadialItems({
       id: "lb-open",
       label: "Open",
       hint:
-        comfyOnline && item?.has_workflow
+        resolveComfyInfo(comfyState ?? comfyOnline).enabled
           ? "Explorer, Browser or ComfyUI"
           : "Explorer or Browser",
       icon: <ExternalLink size={16} />,
-      children: makeOpenSubmenu(item, comfyOnline, curation),
+      children: makeOpenSubmenu(item, comfyState ?? comfyOnline, curation),
     },
     ...(isPurg
       ? [

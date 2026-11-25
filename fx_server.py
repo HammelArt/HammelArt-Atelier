@@ -49,6 +49,17 @@ ROOTS_CONFIG_PATH = _user_data_path("roots_config.json")
 SESSION_STATE_PATH = _user_data_path("ui_session.json")
 _SESSION_LOCK = threading.Lock()
 
+from backend.comfy_bridge import (  # noqa: E402
+    inspect_picked_comfy_folder,
+    install_bridge_to_comfy,
+    open_comfy_folder_explorer,
+    open_workflow_in_comfy,
+    probe_comfy_status,
+    sanitize_json_value,
+    save_workflow_windows_dialog,
+    sync_installed_bridge_if_needed,
+    uninstall_bridge_from_comfy,
+)
 from backend.indexer import GalleryIndexer, SUPPORTED_EXTS  # noqa: E402
 from backend.updater import apply_update, check_updates  # noqa: E402
 
@@ -1721,10 +1732,243 @@ def create_app(
             state["event_queues"].discard(q)
         return resp
 
+    def _read_comfy_session_cfg() -> dict:
+        try:
+            stored = _load_session_state_sync()
+            raw = stored.get("argon_cb_comfy_cfg_v1")
+            if isinstance(raw, str) and raw.strip():
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    return parsed
+        except Exception:
+            pass
+        return {}
+
     @routes.get("/api/comfy-status")
     async def api_comfy_status(request: web.Request) -> web.Response:
-        # Live ComfyUI probe is disabled until the opt-in ComfyUI Integration phase.
-        return web.json_response({"online": False})
+        cfg = await asyncio.to_thread(_read_comfy_session_cfg)
+        q = request.rel_url.query
+        custom_url = q.get("url") if "url" in q else str(cfg.get("url") or "auto")
+        rem_root = q.get("root") if "root" in q else str(cfg.get("rootPath") or "")
+        rem_cn = q.get("custom_nodes") if "custom_nodes" in q else str(cfg.get("customNodesPath") or "")
+        res = await asyncio.to_thread(probe_comfy_status, LAB_ROOT, custom_url, rem_root, rem_cn)
+        if res.get("update_available"):
+            synced = await asyncio.to_thread(
+                sync_installed_bridge_if_needed,
+                LAB_ROOT,
+                str(res.get("customNodesPath") or ""),
+                str(res.get("rootPath") or ""),
+            )
+            if synced.get("updated"):
+                res = await asyncio.to_thread(probe_comfy_status, LAB_ROOT, custom_url, rem_root, rem_cn)
+                res["auto_updated_bridge"] = True
+        return web.json_response(res)
+
+    @routes.get("/api/workflow")
+    async def api_get_workflow(request: web.Request) -> web.Response:
+        q = request.rel_url.query
+        root_id = str(q.get("root_id") or "")
+        subfolder = str(q.get("subfolder") or "")
+        filename = str(q.get("filename") or "")
+        _, idx = _resolve_indexer(root_id)
+        if idx is None:
+            return web.json_response({"ok": False, "error": "No root folder configured"}, status=400)
+        meta = await idx.get_full_metadata(subfolder, filename)
+        if not meta:
+            return web.json_response({"ok": False, "error": "File not found"}, status=404)
+        wf = (
+            sanitize_json_value(meta.get("workflow"))
+            if isinstance(meta.get("workflow"), dict) and meta.get("workflow")
+            else None
+        )
+        pg = (
+            sanitize_json_value(meta.get("prompt_graph"))
+            if isinstance(meta.get("prompt_graph"), dict) and meta.get("prompt_graph")
+            else None
+        )
+        return web.json_response(
+            {
+                "ok": True,
+                "has_workflow": bool(wf or pg),
+                "workflow": wf,
+                "prompt_graph": pg,
+                "filename": filename,
+            },
+            dumps=lambda obj: json.dumps(obj, allow_nan=False),
+        )
+
+    @routes.post("/api/comfy/open-workflow")
+    async def api_comfy_open_workflow(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"ok": False, "error": "Expected JSON object"}, status=400)
+
+        root_id = str(body.get("root_id") or "")
+        subfolder = str(body.get("subfolder") or "")
+        filename = str(body.get("filename") or "")
+        _, idx = _resolve_indexer(root_id)
+        if idx is None:
+            return web.json_response({"ok": False, "error": "No root folder configured"}, status=400)
+        meta = await idx.get_full_metadata(subfolder, filename)
+        if not meta:
+            return web.json_response({"ok": False, "error": "File not found"}, status=404)
+
+        wf = (
+            sanitize_json_value(meta.get("workflow"))
+            if isinstance(meta.get("workflow"), dict) and meta.get("workflow")
+            else None
+        )
+        pg = (
+            sanitize_json_value(meta.get("prompt_graph"))
+            if (not wf and isinstance(meta.get("prompt_graph"), dict) and meta.get("prompt_graph"))
+            else None
+        )
+        if not wf and not pg:
+            return web.json_response(
+                {"ok": False, "error": "This render does not have an embedded ComfyUI workflow"},
+                status=400,
+            )
+
+        cfg = await asyncio.to_thread(_read_comfy_session_cfg)
+        custom_url = str(body.get("url") or cfg.get("url") or "auto")
+        focus_on_open = bool(body.get("focusOnOpen", cfg.get("focusOnOpen", True)))
+
+        status = await asyncio.to_thread(
+            probe_comfy_status,
+            LAB_ROOT,
+            custom_url,
+            str(cfg.get("rootPath") or ""),
+            str(cfg.get("customNodesPath") or ""),
+        )
+        if status.get("state") != "ready" or not status.get("url"):
+            reason = (
+                "ComfyUI is running, but ComfyUI-Atelier-Bridge needs to be installed first (? -> 05 ComfyUI)."
+                if status.get("state") == "no_bridge"
+                else "ComfyUI is not currently running."
+            )
+            return web.json_response({"ok": False, "state": status.get("state"), "error": reason}, status=503)
+
+        tab_name = os.path.splitext(filename)[0] or "Atelier Workflow"
+        res = await asyncio.to_thread(
+            open_workflow_in_comfy,
+            str(status["url"]),
+            wf,
+            pg,
+            tab_name,
+            focus_on_open,
+        )
+        return web.json_response(res, status=200 if res.get("ok") else 502)
+
+    @routes.post("/api/comfy/install-bridge")
+    async def api_comfy_install_bridge(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        cfg = await asyncio.to_thread(_read_comfy_session_cfg)
+        target_cn = str(body.get("customNodesPath") or cfg.get("customNodesPath") or "")
+        target_root = str(body.get("rootPath") or cfg.get("rootPath") or "")
+
+        if not target_cn and not target_root:
+            status = await asyncio.to_thread(
+                probe_comfy_status, LAB_ROOT, str(body.get("url") or cfg.get("url") or "auto"), "", ""
+            )
+            target_cn = str(status.get("customNodesPath") or "")
+            target_root = str(status.get("rootPath") or "")
+
+        res = await asyncio.to_thread(install_bridge_to_comfy, LAB_ROOT, target_cn, target_root)
+        return web.json_response(res, status=200 if res.get("ok") else 400)
+
+    @routes.post("/api/comfy/uninstall-bridge")
+    async def api_comfy_uninstall_bridge(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body if isinstance(body, dict) else {}
+        cfg = await asyncio.to_thread(_read_comfy_session_cfg)
+        target_cn = str(body.get("customNodesPath") or cfg.get("customNodesPath") or "")
+        target_root = str(body.get("rootPath") or cfg.get("rootPath") or "")
+        res = await asyncio.to_thread(uninstall_bridge_from_comfy, target_cn, target_root)
+        return web.json_response(res, status=200 if res.get("ok") else 400)
+
+    @routes.post("/api/comfy/browse-folder")
+    async def api_comfy_browse_folder(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        initial = str(body.get("initialPath") or "") if isinstance(body, dict) else ""
+        if not initial or not os.path.isdir(initial):
+            cfg = await asyncio.to_thread(_read_comfy_session_cfg)
+            cand = str(cfg.get("rootPath") or "")
+            initial = cand if cand and os.path.isdir(cand) else ""
+        picked = await asyncio.to_thread(browse_windows_folder, initial or None)
+        if not picked.get("ok") or picked.get("cancelled") or not picked.get("path"):
+            return web.json_response(picked)
+        inspected = await asyncio.to_thread(inspect_picked_comfy_folder, picked["path"], LAB_ROOT)
+        return web.json_response({**picked, **inspected})
+
+    @routes.post("/api/comfy/open-folder")
+    async def api_comfy_open_folder(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"ok": False, "error": "Expected JSON object"}, status=400)
+        folder_key = str(body.get("folder") or "")
+        cfg = await asyncio.to_thread(_read_comfy_session_cfg)
+        root_path = str(body.get("rootPath") or cfg.get("rootPath") or "")
+        cn_path = str(body.get("customNodesPath") or cfg.get("customNodesPath") or "")
+        res = await asyncio.to_thread(open_comfy_folder_explorer, folder_key, root_path, cn_path)
+        return web.json_response(res, status=200 if res.get("ok") else 400)
+
+    @routes.post("/api/comfy/save-workflow")
+    async def api_comfy_save_workflow(request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "Invalid JSON"}, status=400)
+        if not isinstance(body, dict):
+            return web.json_response({"ok": False, "error": "Expected JSON object"}, status=400)
+
+        root_id = str(body.get("root_id") or "")
+        subfolder = str(body.get("subfolder") or "")
+        filename = str(body.get("filename") or "")
+        _, idx = _resolve_indexer(root_id)
+        if idx is None:
+            return web.json_response({"ok": False, "error": "No root folder configured"}, status=400)
+        meta = await idx.get_full_metadata(subfolder, filename)
+        if not meta:
+            return web.json_response({"ok": False, "error": "File not found"}, status=404)
+
+        wf = (
+            sanitize_json_value(meta.get("workflow"))
+            if isinstance(meta.get("workflow"), dict) and meta.get("workflow")
+            else None
+        )
+        pg = (
+            sanitize_json_value(meta.get("prompt_graph"))
+            if (not wf and isinstance(meta.get("prompt_graph"), dict) and meta.get("prompt_graph"))
+            else None
+        )
+        export_obj = wf or pg
+        if not export_obj:
+            return web.json_response({"ok": False, "error": "No workflow JSON found in file"}, status=400)
+
+        cfg = await asyncio.to_thread(_read_comfy_session_cfg)
+        workflows_dir = str(body.get("workflowsPath") or cfg.get("workflowsPath") or "")
+        if not workflows_dir and cfg.get("rootPath"):
+            workflows_dir = os.path.join(str(cfg["rootPath"]), "user", "default", "workflows")
+        stem = os.path.splitext(filename)[0] or "workflow"
+        default_name = f"{stem}.json"
+        res = await asyncio.to_thread(save_workflow_windows_dialog, export_obj, default_name, workflows_dir)
+        return web.json_response(res)
 
     @routes.get("/api/idle")
     async def api_idle(request: web.Request) -> web.Response:

@@ -2,6 +2,17 @@
 
 All notable changes to **HammelArt Atelier** are documented in this file.
 
+## [v0.9.6-beta] - 2026-11-25 — ComfyUI Bridge, Auto-Installer & Smart Sleeping Mode
+### Added
+- **Zero-Node Companion Bridge (`bridge/ComfyUI-Atelier-Bridge/`):** Bundled lightweight extension (`NODE_CLASS_MAPPINGS = {}` + `WEB_DIRECTORY = "./web"`) that loads silently across every ComfyUI tab (Browser, Portable, Desktop Electron, EzI/Tauri) — no tracker nodes required on workflows.
+- **1-Click "Torpedo" Installer & Auto-Path Detection:** Probes `127.0.0.1:8188` and `127.0.0.1:8000` (plus custom URL override) via ComfyUI's own `/internal/folder_paths` & `/system_stats` endpoints to resolve exact `custom_nodes` & root folders privately, installs with one click, remembers Comfy folders even when closed, and **automatically keeps an already-installed bridge updated** during normal Atelier Git/ZIP updates.
+- **Top-Right ComfyUI Pill & Sleeping Mode (`App.jsx`):** Shows live `Off` / `Detected` / `Connected` / `Sleeping` / `Setup` states; remembers your ComfyUI link cleanly (`argon_cb_comfy_cfg_v1`) and dims Comfy actions into Sleeping mode with a helpful tooltip whenever ComfyUI is closed, waking automatically when ComfyUI starts.
+- **`? → 05 ComfyUI` Hub & Quick-Open Folders (`06 Updates`):** Moved release updates cleanly to `06 Updates` and added the new `05 ComfyUI` tab with bridge controls, 1-click install/update/remove, Explorer Quick-Open buttons (`Workflows`, `Output`, `Input`, `Custom Nodes`, `Models`), and a preview of upcoming Phase 2 Hammelart Studio Nodes.
+- **1-Click "Open in ComfyUI" & Window Focus:** Opens any render's workflow into a **brand-new temporary ComfyUI tab** (`app.loadGraphData` / `app.loadApiJson` fallback) without overwriting your active tab, targets the active client `sid` (with headless queue fallback), and brings the ComfyUI window to foreground cleanly on Windows (`Win32`).
+
+### Fixed
+- **Unified `Save Workflow (.json)` & Legacy `NaN` Sanitization:** Fixed missing workflows on indexed renders (`GET /api/workflow`), fixed Windows `IFileSaveDialog` COM interface GUID (`0x80004002`), unified saving into one `Save Workflow (.json)` button pre-pointed at `<comfy_root>\user\default\workflows`, and sanitized non-finite floats (`NaN`/`Infinity` inside Comfy `is_changed` prompt metadata) across both Atelier and Bridge so all existing ComfyUI renders open cleanly.
+
 ## [v0.9.5-beta.1] - 2026-11-25 — Theme-Synced Welcome, Updates & Tour Accents
 ### Fixed
 - **Dynamic Accent Colors in Welcome, Updates & Spotlight Tour:** Replaced remaining hardcoded purple hexes (`#c084fc`, `#c4b5fd`, `#e9d5ff`, `#9333ea`) across `.hm-welcome-eyebrow`, tab numbers (`01`–`05`), `Git Sync Install` / `Patch Notes` headers, `STEP 1–4` badges, `✦` callout icon, Tour button, and the Un-Blur Spotlight Tour overlay/SVG arrows with `var(--hm-accent*)` theme variables so Solar Amber, Emerald, Cyan, and Obsidian tint cleanly everywhere.

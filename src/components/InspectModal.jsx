@@ -39,7 +39,8 @@ import {
   findVisibleTileForItem,
 } from "../utils/lightboxFlight";
 import { startWebGLMembraneFlight } from "../utils/webglTransition";
-import { buildLightboxRadialItems, checkComfyStatus } from "../utils/radialBuilders";
+import { buildLightboxRadialItems } from "../utils/radialBuilders";
+import { requestComfyRefresh, useComfyBridgeState } from "../utils/comfyBridge";
 import LightboxInspector from "./LightboxInspector";
 import RadialMenu from "./RadialMenu";
 
@@ -75,7 +76,7 @@ export default function InspectModal({
   const [currentItem, setCurrentItem] = useState(null);
   const [removedKeys, setRemovedKeys] = useState([]);
   const [lbRadial, setLbRadial] = useState(null);
-  const [comfyOnline, setComfyOnline] = useState(false);
+  const comfyState = useComfyBridgeState();
   const lbRadialRef = useRef(false);
   lbRadialRef.current = Boolean(lbRadial);
   const stageDeletingRef = useRef(false);
@@ -1326,7 +1327,7 @@ export default function InspectModal({
       items: buildLightboxRadialItems({
         item: activeItem,
         curation,
-        comfyOnline,
+        comfyState,
         isZoomed: zoom.scale > 1.02,
         pureView,
         onResetFit: () => zoomTowardPoint(1, dest.stageCx, dest.stageCy, true),
@@ -1345,7 +1346,7 @@ export default function InspectModal({
     lbRadial,
     activeItem,
     curation,
-    comfyOnline,
+    comfyState,
     zoom.scale,
     pureView,
     zoomTowardPoint,
@@ -1389,7 +1390,7 @@ export default function InspectModal({
       onPointerDown={(e) => {
         if (e.button !== 2 || closingRef.current) return;
         if (e.target?.closest?.("input, textarea, .lb-inspector")) return;
-        checkComfyStatus().then(setComfyOnline);
+        requestComfyRefresh();
         setLbRadial({
           x: e.clientX,
           y: e.clientY,
@@ -1981,7 +1982,7 @@ export default function InspectModal({
             setLbRadial(null);
             return;
           }
-          checkComfyStatus().then(setComfyOnline);
+          requestComfyRefresh();
           setLbRadial({
             x: e.clientX,
             y: e.clientY,

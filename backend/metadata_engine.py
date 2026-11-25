@@ -19,11 +19,22 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import re
 import subprocess
 from typing import Any, Dict, List, Optional, Tuple
 from PIL import Image
+
+
+def _sanitize_json_graph(obj: Any) -> Any:
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _sanitize_json_graph(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_json_graph(v) for v in obj]
+    return obj
 
 TAG_DICTIONARY = [
     # Traditional & Digital Fine Art
@@ -1221,7 +1232,11 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
 
     dialect = detect_model_dialect(model_name, sampler, prompt_dict)
     tags = extract_tags_from_text(raw_prompt, extra_tags_str)
-    has_workflow = bool(workflow and isinstance(workflow, dict) and len(workflow) > 0)
+    clean_workflow = _sanitize_json_graph(workflow) if isinstance(workflow, dict) else workflow
+    clean_prompt = _sanitize_json_graph(prompt_dict) if isinstance(prompt_dict, dict) else {}
+    has_ui_workflow = bool(clean_workflow and isinstance(clean_workflow, dict) and len(clean_workflow) > 0)
+    has_api_prompt = bool(clean_prompt and isinstance(clean_prompt, dict) and len(clean_prompt) > 0)
+    has_workflow = has_ui_workflow or has_api_prompt
 
     short_model = _clean_asset_name(model_name)
 
@@ -1257,5 +1272,6 @@ def extract_media_metadata(file_path: str) -> Dict[str, Any]:
         "negative_prompt": negative_prompt,
         "tags": tags,
         "has_workflow": has_workflow,
-        "workflow": workflow,
+        "workflow": clean_workflow,
+        "prompt_graph": clean_prompt,
     }

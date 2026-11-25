@@ -7771,25 +7771,28 @@ button.hm-sb-count:hover {
 
 .hm-welcome-tabs {
   display: flex;
-  gap: 8px;
-  padding: 12px 24px 0;
+  gap: 5px;
+  padding: 10px 20px 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.015);
+  overflow-x: auto;
 }
 
 .hm-welcome-tab {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 15px 11px;
+  gap: 6px;
+  padding: 9px 11px 10px;
   border: 1px solid transparent;
   border-bottom: none;
   border-radius: 10px 10px 0 0;
   background: transparent;
   color: #9e9eb4;
-  font-size: 13px;
+  font-size: 12.2px;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
@@ -10832,3 +10835,476 @@ button.hm-sb-count:hover {
   border: 1px solid rgba(255, 255, 255, 0.08);
   backdrop-filter: blur(10px);
 }
+
+/* ================================================================
+   ComfyUI Bridge Pill, Popover, Inspector & Help Hub (? -> 05 ComfyUI)
+   100% Dynamic Theme Colors (--hm-accent* + --stage-*)
+   ================================================================ */
+.hm-comfy-pill-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.hm-comfy-pill {
+  gap: 6px;
+  padding-left: 9px;
+  padding-right: 10px;
+  position: relative;
+}
+
+.hm-comfy-pill.is-connected {
+  border-color: var(--hm-accent-border);
+  background: var(--hm-accent-soft-bg);
+  color: var(--hm-accent-bright);
+  box-shadow: 0 0 14px rgba(var(--hm-accent-rgb, 168, 85, 247), 0.22);
+}
+
+html[data-stage="light"] .hm-comfy-pill.is-connected,
+html[data-stage="light"] .hm-comfy-pill.active {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.hm-comfy-pill.is-detected {
+  border-color: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.44);
+}
+
+.hm-comfy-pill.is-sleeping {
+  opacity: 0.72;
+  border-style: dashed;
+  border-color: var(--stage-border-strong);
+  color: var(--stage-text-secondary);
+}
+
+.hm-comfy-pill.is-sleeping:hover {
+  opacity: 1;
+}
+
+.hm-comfy-pill.is-needs_bridge {
+  border-color: rgba(245, 158, 11, 0.48);
+}
+
+.hm-comfy-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  background: var(--stage-text-muted);
+  opacity: 0.6;
+}
+
+.hm-comfy-pill.is-connected .hm-comfy-dot,
+.hm-comfy-dot.is-connected {
+  opacity: 1;
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.85);
+}
+
+.hm-comfy-pill.is-detected .hm-comfy-dot,
+.hm-comfy-dot.is-detected {
+  opacity: 1;
+  background: var(--hm-accent-bright);
+  box-shadow: 0 0 8px var(--hm-accent-glow);
+  animation: hm-comfy-pulse 2.2s ease-in-out infinite;
+}
+
+.hm-comfy-pill.is-sleeping .hm-comfy-dot,
+.hm-comfy-dot.is-sleeping {
+  opacity: 0.85;
+  background: transparent;
+  border: 1.5px solid var(--stage-text-muted);
+}
+
+.hm-comfy-pill.is-needs_bridge .hm-comfy-dot,
+.hm-comfy-dot.is-needs_bridge {
+  opacity: 1;
+  background: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.65);
+}
+
+@keyframes hm-comfy-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 1;
+  }
+}
+
+.hm-comfy-state-tag {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--stage-input-bg);
+  border: 1px solid var(--stage-border);
+  color: var(--stage-text-secondary);
+}
+
+.hm-comfy-pill.is-connected .hm-comfy-state-tag {
+  background: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.22);
+  border-color: var(--hm-accent-border);
+  color: var(--hm-accent-bright);
+}
+
+html[data-stage="light"] .hm-comfy-pill.is-connected .hm-comfy-state-tag {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.hm-comfy-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 318px;
+  z-index: 900;
+  padding: 13px;
+  border-radius: 14px;
+  border: 1px solid var(--stage-border-strong);
+  background: var(--stage-glass);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--stage-shadow);
+  color: var(--stage-text);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hm-comfy-pop-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.hm-comfy-pop-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.hm-comfy-pop-sub {
+  font-size: 11px;
+  color: var(--stage-text-secondary);
+  margin-top: 2px;
+  line-height: 1.38;
+}
+
+.hm-comfy-pop-cta {
+  width: 100%;
+  min-height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--hm-accent-border);
+  background: var(--hm-accent-soft-bg);
+  color: var(--hm-accent-bright);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+html[data-stage="light"] .hm-comfy-pop-cta {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.hm-comfy-pop-cta:hover:not(:disabled) {
+  border-color: var(--hm-accent-bright);
+  box-shadow: 0 0 14px var(--hm-accent-glow);
+}
+
+.hm-comfy-pop-cta.is-secondary {
+  border-color: var(--stage-border-strong);
+  background: var(--stage-input-bg);
+  color: var(--stage-text-secondary);
+}
+
+.hm-comfy-pop-cta.is-secondary:hover:not(:disabled) {
+  color: var(--stage-text);
+  border-color: var(--hm-accent-border);
+  box-shadow: none;
+}
+
+.hm-comfy-pop-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.hm-comfy-folders-wrap {
+  border-top: 1px solid var(--stage-border);
+  padding-top: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hm-comfy-folders-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--stage-text-muted);
+}
+
+.hm-comfy-folders-path {
+  font-size: 10.5px;
+  color: var(--stage-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hm-comfy-folders-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.hm-comfy-folder-chip {
+  height: 27px;
+  padding: 0 7px;
+  border-radius: 8px;
+  border: 1px solid var(--stage-border);
+  background: var(--stage-input-bg);
+  color: var(--stage-text-secondary);
+  font-size: 10.5px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  transition: all 0.14s ease;
+}
+
+.hm-comfy-folder-chip:hover:not(:disabled) {
+  border-color: var(--hm-accent-border);
+  background: var(--hm-accent-soft-bg);
+  color: var(--hm-accent-bright);
+}
+
+html[data-stage="light"] .hm-comfy-folder-chip:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.hm-comfy-folder-chip:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.hm-comfy-pop-foot {
+  border-top: 1px solid var(--stage-border);
+  padding-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hm-comfy-hub-link {
+  border: none;
+  background: transparent;
+  color: var(--hm-accent-bright);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 2px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+html[data-stage="light"] .hm-comfy-hub-link {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.hm-comfy-hub-link:hover {
+  text-decoration: underline;
+}
+
+/* Lightbox Inspector Workflow Row */
+.lb-workflow-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lb-workflow-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+.lb-workflow-btn.is-primary {
+  background: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.22);
+  border-color: var(--hm-accent-border);
+}
+
+.lb-workflow-btn.is-sleeping {
+  opacity: 0.56;
+  border-style: dashed;
+  border-color: var(--stage-border-strong);
+  background: var(--stage-input-bg);
+  color: var(--stage-text-muted);
+  cursor: not-allowed;
+}
+
+.lb-workflow-btn.is-sleeping:hover {
+  border-color: var(--stage-border-strong);
+  box-shadow: none;
+}
+
+.lb-workflow-btn.is-secondary {
+  background: var(--stage-input-bg);
+  border-color: var(--stage-border-strong);
+  color: var(--stage-text-secondary);
+}
+
+.lb-workflow-btn.is-secondary:hover:not(:disabled) {
+  border-color: var(--hm-accent-border);
+  color: var(--hm-accent-bright);
+  box-shadow: none;
+}
+
+html[data-stage="light"] .lb-workflow-btn.is-secondary:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.lb-workflow-msg {
+  font-size: 11px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--stage-border);
+  background: var(--stage-input-bg);
+  color: var(--stage-text-secondary);
+}
+
+.lb-workflow-msg.is-err {
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #fca5a5;
+}
+
+html[data-stage="light"] .lb-workflow-msg.is-err {
+  color: #b91c1c;
+}
+
+/* ? -> 05 ComfyUI Hub */
+.hm-welcome-pane[data-pane="comfy"] {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hm-comfy-hub-hero {
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--hm-accent-border);
+  background: linear-gradient(
+    135deg,
+    var(--hm-accent-soft-bg),
+    rgba(var(--hm-accent-rgb, 168, 85, 247), 0.04)
+  );
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hm-comfy-hub-card {
+  padding: 11px 13px;
+  border-radius: 12px;
+  border: 1px solid var(--stage-border);
+  background: var(--stage-card-bg);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hm-welcome-step-pill.is-static {
+  cursor: default;
+  padding: 10px 12px;
+  gap: 5px;
+}
+
+.hm-welcome-step-pill.is-static:hover {
+  transform: none;
+}
+
+.hm-welcome-step-pill.is-accent-card {
+  border-color: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.34);
+  background: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.06);
+}
+
+.hm-welcome-step-pill span code {
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--stage-input-bg);
+  border: 1px solid var(--stage-border);
+  color: var(--hm-accent-bright);
+}
+
+html[data-stage="light"] .hm-welcome-step-pill span code {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.hm-comfy-hub-path-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--stage-border);
+  background: var(--stage-input-bg);
+  font-size: 11.5px;
+}
+
+.hm-comfy-hub-path-row code {
+  font-size: 11px;
+  color: var(--hm-accent-bright);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-stage="light"] .hm-comfy-hub-path-row code {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+html[data-stage="light"] .lb-workflow-btn {
+  color: color-mix(in srgb, var(--hm-accent) 62%, #111118);
+}
+
+.hm-comfy-hub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.hm-comfy-hub-actions > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.hm-comfy-folder-grid-wide {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+

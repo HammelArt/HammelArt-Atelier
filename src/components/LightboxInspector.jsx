@@ -12,8 +12,15 @@ import {
   Wand2,
   Pin,
   StickyNote,
+  Workflow,
 } from "lucide-react";
 import { FavMark, useCuration } from "../utils/curation";
+import {
+  useComfyBridgeState,
+  fetchWorkflowJsonRequest,
+  openWorkflowInComfyRequest,
+  saveWorkflowToComfyDialogRequest,
+} from "../utils/comfyBridge";
 import ThemedSelect from "./ThemedSelect";
 import {
   DEFAULT_LIGHTBOX_CFG,
@@ -169,7 +176,10 @@ export default function LightboxInspector({
   onCloseDrawer,
 }) {
   const [tab, setTab] = useState("info"); // "info" | "settings"
+  const [wfBusy, setWfBusy] = useState(false);
+  const [wfNotice, setWfNotice] = useState(null); // { ok: boolean, text: string }
   const curation = useCuration();
+  const comfySnap = useComfyBridgeState();
 
   if (!item) return null;
 
@@ -200,10 +210,30 @@ export default function LightboxInspector({
     showField("clip") ||
     showField("loras");
 
-  const handleDownloadWorkflow = () => {
-    if (!item.workflow) return;
+  const handleSaveWorkflow = async () => {
+    setWfBusy(true);
+    setWfNotice(null);
     try {
-      const blob = new Blob([JSON.stringify(item.workflow, null, 2)], {
+      // On Windows, open native Save As dialog pre-pointed at ComfyUI's workflows folder (if known)
+      const dlgRes = await saveWorkflowToComfyDialogRequest(item, comfySnap.cfg);
+      if (dlgRes?.ok) {
+        if (!dlgRes.cancelled && dlgRes.path) {
+          setWfNotice({ ok: true, text: "Saved workflow JSON cleanly." });
+        }
+        return;
+      }
+
+      // Clean browser fallback for non-Windows or headless environments
+      let wfObj = item.workflow;
+      if (!wfObj || (typeof wfObj === "object" && Object.keys(wfObj).length === 0)) {
+        const res = await fetchWorkflowJsonRequest(item);
+        if (res?.ok) wfObj = res.workflow || res.prompt_graph;
+      }
+      if (!wfObj) {
+        setWfNotice({ ok: false, text: dlgRes?.error || "No workflow JSON found on disk." });
+        return;
+      }
+      const blob = new Blob([JSON.stringify(wfObj, null, 2)], {
         type: "application/json",
       });
       const url = URL.createObjectURL(blob);
@@ -215,7 +245,31 @@ export default function LightboxInspector({
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch {}
+    } catch {
+      setWfNotice({ ok: false, text: "Could not save workflow JSON." });
+    } finally {
+      setWfBusy(false);
+    }
+  };
+
+  const handleOpenInComfy = async () => {
+    setWfBusy(true);
+    setWfNotice(null);
+    try {
+      const res = await openWorkflowInComfyRequest(item, comfySnap.cfg);
+      if (res?.ok) {
+        setWfNotice({
+          ok: true,
+          text: res.queued_for_open
+            ? "Opening ComfyUI & loading workflow…"
+            : "Opened in a new ComfyUI tab.",
+        });
+      } else {
+        setWfNotice({ ok: false, text: res?.error || "Failed to send workflow to ComfyUI." });
+      }
+    } finally {
+      setWfBusy(false);
+    }
   };
 
   return (
@@ -490,18 +544,66 @@ export default function LightboxInspector({
               </div>
             )}
 
-            {/* Workflow JSON Action */}
-            {item.has_workflow && item.workflow && (
-              <button
-                type="button"
-                className="lb-workflow-btn"
-                onClick={handleDownloadWorkflow}
-                title="Download embedded workflow JSON"
-              >
-                <Download size={13} />
-                <span>Download Workflow (.json)</span>
-              </button>
-            )}
+            {/* Workflow JSON & ComfyUI Actions */}
+            {item.has_workflow && (() => {
+              const comfyEnabled = Boolean(comfySnap?.cfg?.enabled);
+              const comfyUiState = comfySnap?.uiState || "off";
+              const comfyReady = comfyUiState === "connected";
+              const workflowsKnown = Boolean(
+                comfySnap?.cfg?.workflowsPath || comfySnap?.status?.workflowsPath
+              );
+              const openTooltip =
+                comfyUiState === "sleeping"
+                  ? "ComfyUI is currently not running (Sleeping Mode)"
+                  : comfyUiState === "needs_bridge"
+                  ? "Install ComfyUI-Atelier-Bridge in ? → 05 ComfyUI"
+                  : "Open this workflow in a new ComfyUI tab";
+
+              return (
+                <div className="lb-workflow-actions">
+                  {comfyEnabled && (
+                    <button
+                      type="button"
+                      className={`lb-workflow-btn ${comfyReady ? "is-primary" : "is-sleeping"}`}
+                      disabled={!comfyReady || wfBusy}
+                      onClick={handleOpenInComfy}
+                      title={openTooltip}
+                    >
+                      <Workflow size={13} />
+                      <span>
+                        {comfyReady
+                          ? "Open in ComfyUI"
+                          : comfyUiState === "needs_bridge"
+                          ? "ComfyUI (Needs Bridge)"
+                          : "ComfyUI Sleeping"}
+                      </span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className={`lb-workflow-btn ${comfyEnabled ? "is-secondary" : ""}`}
+                    disabled={wfBusy}
+                    onClick={handleSaveWorkflow}
+                    title={
+                      workflowsKnown
+                        ? "Save workflow (.json) — opens at your ComfyUI workflows folder"
+                        : "Save embedded workflow (.json)"
+                    }
+                    style={{ width: "100%" }}
+                  >
+                    <Download size={13} />
+                    <span>Save Workflow (.json)</span>
+                  </button>
+
+                  {wfNotice?.text && (
+                    <div className={`lb-workflow-msg ${wfNotice.ok ? "" : "is-err"}`}>
+                      {wfNotice.text}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Prompts */}
             {item.raw_prompt && (

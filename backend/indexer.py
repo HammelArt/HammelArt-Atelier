@@ -215,8 +215,8 @@ class GalleryIndexer:
             else:
                 full_path = os.path.join(self.output_dir, subfolder.replace("/", os.sep), filename)
                 meta = extract_media_metadata(full_path)
-                # Omit full heavy workflow dict from the list index payload to keep JSON ultra-compact
-                meta_light = {k: v for k, v in meta.items() if k != "workflow"}
+                # Omit full heavy workflow/prompt graphs from the list index payload to keep JSON ultra-compact
+                meta_light = {k: v for k, v in meta.items() if k not in ("workflow", "prompt_graph")}
                 prompt_snip = (meta.get("raw_prompt") or "")[:260]
                 lora_names = " ".join(str(l.get("name") or "") for l in (meta.get("loras") or []) if isinstance(l, dict))
                 clip_names = " ".join(str(c) for c in (meta.get("clips") or []))

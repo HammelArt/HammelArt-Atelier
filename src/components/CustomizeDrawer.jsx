@@ -26,8 +26,10 @@ import {
   ArrowUp,
   ArrowDown,
   ChevronDown,
+  Workflow,
 } from "lucide-react";
 import { ACCENT_SLOTS, BUTTON_THEMES } from "../theme";
+import { useComfyBridgeState, saveComfyCfg, requestComfyRefresh } from "../utils/comfyBridge";
 import { MAX_ZONES } from "../utils/zoneTree";
 import { getFolderSpecLabel } from "../utils/folderTree";
 import { DEFAULT_CARD_LABELS, FavMark, useCuration } from "../utils/curation";
@@ -283,6 +285,9 @@ function StageThemeSection({
 }) {
   const curation = useCuration();
   const favIcon = curation?.favIcon || "star";
+  const comfySnap = useComfyBridgeState();
+  const comfyCfg = comfySnap?.cfg || { enabled: false, url: "auto", focusOnOpen: true };
+  const comfyUiState = comfySnap?.uiState || "off";
   const hasWorkspaceControls = Boolean(
     onSetFolderSidebarMode ||
       onSetDockSide ||
@@ -620,6 +625,59 @@ function StageThemeSection({
           )}
         </div>
       )}
+
+        <div className="hm-drawer-row-block" style={{ marginTop: 10 }}>
+          <div className="hm-drawer-label-wrap">
+            <span className="hm-drawer-label" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Workflow size={12} style={{ color: "var(--hm-accent-bright)" }} />
+              ComfyUI Bridge ({comfyUiState === "connected" ? "Live" : comfyUiState === "sleeping" ? "Sleeping" : comfyUiState === "detected" ? "Detected" : comfyUiState === "needs_bridge" ? "Needs Bridge" : "Off"})
+            </span>
+            <span className="hm-drawer-hint">
+              Remember link (dims smoothly into Sleeping mode when ComfyUI closes)
+            </span>
+          </div>
+
+          <DrawerToggle
+            label="Enable ComfyUI Link"
+            hint="Shows Open in ComfyUI on renders & radial menus"
+            checked={Boolean(comfyCfg.enabled)}
+            onChange={(val) => {
+              saveComfyCfg({ enabled: val });
+              requestComfyRefresh();
+            }}
+          />
+
+          <DrawerToggle
+            label="Auto-Focus ComfyUI Window"
+            hint="Brings active ComfyUI desktop/browser window forward on open"
+            checked={comfyCfg.focusOnOpen !== false}
+            onChange={(val) => saveComfyCfg({ focusOnOpen: val })}
+          />
+
+          <div className="hm-drawer-row-block" style={{ marginTop: 6 }}>
+            <span className="hm-drawer-hint">
+              Endpoint (`auto` probes :8188 &amp; :8000, or enter custom URL)
+            </span>
+            <input
+              type="text"
+              className="hm-search"
+              style={{ width: "100%", height: 30, fontSize: 11.5 }}
+              value={comfyCfg.url || "auto"}
+              placeholder="auto"
+              onChange={(e) => saveComfyCfg({ url: e.target.value })}
+              onBlur={() => requestComfyRefresh()}
+            />
+          </div>
+
+          <button
+            type="button"
+            className="hm-btn hm-drawer-add-root-btn"
+            style={{ marginTop: 6 }}
+            onClick={() => window.dispatchEvent(new CustomEvent("hm:open-comfy-hub"))}
+          >
+            <Workflow size={12} /> Open ? → 05 ComfyUI Hub
+          </button>
+        </div>
       </DrawerSection>
     )}
     </>

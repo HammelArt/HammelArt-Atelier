@@ -1,6 +1,26 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Download, ExternalLink, RefreshCw, RotateCw, Search } from "lucide-react";
+import {
+  Download,
+  ExternalLink,
+  RefreshCw,
+  RotateCw,
+  Search,
+  Workflow,
+  FolderOpen,
+  FolderSearch,
+  Power,
+  Trash2,
+} from "lucide-react";
 import { HAMMELART_CREST_PATH } from "../theme";
+import {
+  useComfyBridgeState,
+  saveComfyCfg,
+  requestComfyRefresh,
+  installComfyBridgeRequest,
+  uninstallComfyBridgeRequest,
+  browseComfyFolderRequest,
+  openComfyFolderRequest,
+} from "../utils/comfyBridge";
 
 function renderInlineMarkdown(text) {
   const parts = [];
@@ -110,7 +130,8 @@ const TABS = [
   { id: "root", num: "02", label: "First Root Folder" },
   { id: "modes", num: "03", label: "Mode Overview" },
   { id: "shortcuts", num: "04", label: "Shortcuts & Controls" },
-  { id: "updates", num: "05", label: "Updates" },
+  { id: "comfy", num: "05", label: "ComfyUI" },
+  { id: "updates", num: "06", label: "Updates" },
 ];
 
 const SHORTCUT_GROUPS = [
@@ -267,6 +288,9 @@ export default function WelcomeModal({
   const [shortcutFilter, setShortcutFilter] = useState("all");
   const [shortcutQuery, setShortcutQuery] = useState("");
   const [selectedReleaseTab, setSelectedReleaseTab] = useState("auto");
+  const [comfyBusy, setComfyBusy] = useState(false);
+  const [comfyHubMsg, setComfyHubMsg] = useState(null);
+  const comfySnap = useComfyBridgeState();
   const bodyRef = useRef(null);
 
   useEffect(() => {
@@ -280,6 +304,7 @@ export default function WelcomeModal({
       setStatusMsg(null);
       setShortcutQuery("");
       setSelectedReleaseTab("auto");
+      setComfyHubMsg(null);
     }
   }, [isOpen, initialTab, activeRootPath, roots.length]);
 
@@ -318,7 +343,7 @@ export default function WelcomeModal({
       return {
         mode: "stack",
         activeTabKey: "new",
-        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.5-beta.1"} (${newerReleases.length} releases)`,
+        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.6-beta"} (${newerReleases.length} releases)`,
         publishedAt: newerReleases[0]?.publishedAt || "",
         url: newerReleases[0]?.url || fallbackUrl,
         items: newerReleases,
@@ -491,6 +516,7 @@ export default function WelcomeModal({
             const active = activeTab === tab.id;
             const needsRootWarn = tab.id === "root" && !activeRootPath;
             const hasUpdateDot = tab.id === "updates" && Boolean(updateInfo?.updateAvailable);
+            const hasComfyDot = tab.id === "comfy" && comfySnap?.uiState === "connected";
             return (
               <button
                 key={tab.id}
@@ -507,6 +533,8 @@ export default function WelcomeModal({
                 <span>{tab.label}</span>
                 {hasUpdateDot ? (
                   <span className="hm-welcome-tab-dot is-update" title="Update available" />
+                ) : hasComfyDot ? (
+                  <span className="hm-welcome-tab-dot is-update" title="ComfyUI Connected" />
                 ) : needsRootWarn ? (
                   <span className="hm-welcome-tab-dot" title="Folder setup needed" />
                 ) : null}
@@ -764,6 +792,319 @@ export default function WelcomeModal({
             </div>
           )}
 
+          {activeTab === "comfy" && (() => {
+            const cCfg = comfySnap?.cfg || { enabled: false, url: "auto", focusOnOpen: true };
+            const cSt = comfySnap?.status || {};
+            const uiState = comfySnap?.uiState || "off";
+            const activeRoot = cSt.rootPath || cCfg.rootPath || "";
+            const activeCn = cSt.customNodesPath || cCfg.customNodesPath || "";
+            const canTorpedoInstall = Boolean(activeCn || activeRoot);
+
+            const handleBrowseComfy = async () => {
+              setComfyBusy(true);
+              setComfyHubMsg({ type: "info", text: "Waiting for Windows folder picker…" });
+              try {
+                const res = await browseComfyFolderRequest(activeRoot || "");
+                if (res?.ok && !res.cancelled && res.rootPath) {
+                  saveComfyCfg({
+                    rootPath: res.rootPath,
+                    customNodesPath: res.customNodesPath || "",
+                    workflowsPath: res.workflowsPath || "",
+                  });
+                  requestComfyRefresh();
+                  setComfyHubMsg({
+                    type: "ok",
+                    text: res.customNodesPath
+                      ? `Locked ComfyUI folder: ${res.rootPath}`
+                      : `Selected ${res.rootPath} (no custom_nodes subfolder found there yet).`,
+                  });
+                } else if (res?.cancelled) {
+                  setComfyHubMsg(null);
+                } else {
+                  setComfyHubMsg({ type: "err", text: res?.error || "Could not open folder picker." });
+                }
+              } finally {
+                setComfyBusy(false);
+              }
+            };
+
+            const handleInstallBridge = async () => {
+              setComfyBusy(true);
+              setComfyHubMsg(null);
+              try {
+                const res = await installComfyBridgeRequest({
+                  customNodesPath: activeCn,
+                  rootPath: activeRoot,
+                });
+                if (res?.ok) {
+                  saveComfyCfg({
+                    enabled: true,
+                    customNodesPath: res.customNodesPath || activeCn,
+                  });
+                  requestComfyRefresh();
+                  setComfyHubMsg({
+                    type: "ok",
+                    text: `Installed ComfyUI-Atelier-Bridge (v${res.bridge_version || "0.9.6"}) into ${res.customNodesPath}. Restart ComfyUI once so ComfyUI loads it!`,
+                  });
+                } else {
+                  setComfyHubMsg({ type: "err", text: res?.error || "Install failed." });
+                }
+              } finally {
+                setComfyBusy(false);
+              }
+            };
+
+            const handleUninstallBridge = async () => {
+              setComfyBusy(true);
+              setComfyHubMsg(null);
+              try {
+                const res = await uninstallComfyBridgeRequest({
+                  customNodesPath: activeCn,
+                  rootPath: activeRoot,
+                });
+                if (res?.ok) {
+                  requestComfyRefresh();
+                  setComfyHubMsg({
+                    type: "info",
+                    text: res.removed
+                      ? "Removed ComfyUI-Atelier-Bridge from custom_nodes."
+                      : "Bridge folder was not present.",
+                  });
+                } else {
+                  setComfyHubMsg({ type: "err", text: res?.error || "Could not remove bridge." });
+                }
+              } finally {
+                setComfyBusy(false);
+              }
+            };
+
+            return (
+              <div className="hm-welcome-pane" data-pane="comfy">
+                <div className="hm-comfy-hub-hero">
+                  <div className="hm-update-head-info">
+                    <div className="hm-root-label">COMFYUI BRIDGE &amp; WORKFLOW LINK</div>
+                    <div className="hm-update-title-row">
+                      <span className="hm-update-ver-pill">
+                        <span
+                          className={`hm-comfy-dot is-${uiState}`}
+                          style={{ display: "inline-block", marginRight: 6 }}
+                          aria-hidden="true"
+                        />
+                        {uiState === "connected"
+                          ? `Connected (${cSt.url || "local"} · ${cSt.clients || 0} tab${
+                              (cSt.clients || 0) === 1 ? "" : "s"
+                            })`
+                          : uiState === "sleeping"
+                          ? "Sleeping (ComfyUI Closed)"
+                          : uiState === "detected"
+                          ? `Bridge Detected (${cSt.url || "local"})`
+                          : uiState === "needs_bridge"
+                          ? cSt.restart_needed
+                            ? "Bridge Installed — Restart ComfyUI Once"
+                            : `ComfyUI Running (${cSt.url}) — Bridge Missing`
+                          : "ComfyUI Link Off"}
+                      </span>
+                      {cSt.bridge_version && (
+                        <span className="hm-update-mode-pill">Bridge v{cSt.bridge_version}</span>
+                      )}
+                      {cSt.update_available && (
+                        <span className="hm-update-state-pill is-available">
+                          Bridge Update Ready · v{cSt.bundled_version}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="hm-welcome-copy" style={{ margin: 0 }}>
+                    Zero-node magic: <strong>ComfyUI-Atelier-Bridge</strong> runs silently across
+                    every ComfyUI tab (Browser, Portable, Desktop Electron, EzI/Tauri) — you never
+                    need to drop a tracker node onto workflows.
+                  </p>
+
+                  <div className="hm-comfy-hub-actions">
+                    <button
+                      type="button"
+                      className="hm-root-browse-btn"
+                      onClick={() => requestComfyRefresh()}
+                      disabled={comfyBusy}
+                    >
+                      <RefreshCw size={13} />
+                      <span>Re-scan Ports</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={`hm-root-apply-btn ${!cCfg.enabled ? "is-ready" : ""}`}
+                      onClick={() => {
+                        saveComfyCfg({ enabled: !cCfg.enabled });
+                        requestComfyRefresh();
+                      }}
+                    >
+                      <Power size={13} />
+                      <span>
+                        {cCfg.enabled ? "Disconnect ComfyUI Link" : "Connect ComfyUI Link"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="hm-comfy-hub-card">
+                  <div className="hm-root-label">1-CLICK TORPEDO BRIDGE INSTALLER</div>
+                  <div className="hm-comfy-hub-path-row">
+                    <span>ComfyUI Folder:</span>
+                    <code title={activeRoot || "Not detected yet"}>
+                      {activeRoot || "Not detected yet — start ComfyUI once or browse below"}
+                    </code>
+                  </div>
+
+                  <div className="hm-comfy-hub-actions">
+                    <button
+                      type="button"
+                      className="hm-root-browse-btn"
+                      onClick={handleBrowseComfy}
+                      disabled={comfyBusy}
+                    >
+                      <FolderSearch size={13} />
+                      <span>Browse ComfyUI Folder…</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className="hm-root-apply-btn is-ready"
+                      onClick={handleInstallBridge}
+                      disabled={comfyBusy || !canTorpedoInstall}
+                      title={
+                        canTorpedoInstall
+                          ? `Install ComfyUI-Atelier-Bridge into ${activeCn || activeRoot}`
+                          : "Start ComfyUI or pick your ComfyUI folder first"
+                      }
+                    >
+                      <Workflow size={13} />
+                      <span>
+                        {cSt.update_available
+                          ? `Update Bridge → v${cSt.bundled_version}`
+                          : cSt.installed_on_disk
+                          ? "Reinstall Bridge"
+                          : "Install Atelier Bridge (1 Click)"}
+                      </span>
+                    </button>
+
+                    {cSt.installed_on_disk && (
+                      <button
+                        type="button"
+                        className="hm-root-browse-btn"
+                        onClick={handleUninstallBridge}
+                        disabled={comfyBusy}
+                        title="Remove ComfyUI-Atelier-Bridge from custom_nodes"
+                      >
+                        <Trash2 size={13} />
+                        <span>Remove</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {comfyHubMsg?.text && (
+                    <div
+                      className={`hm-welcome-status ${
+                        comfyHubMsg.type === "ok"
+                          ? "is-ok"
+                          : comfyHubMsg.type === "err"
+                          ? "is-err"
+                          : "is-info"
+                      }`}
+                    >
+                      {comfyHubMsg.text}
+                    </div>
+                  )}
+                </div>
+
+                {activeRoot && (
+                  <div className="hm-comfy-hub-card">
+                    <div className="hm-root-label">QUICK-OPEN COMFYUI FOLDERS (WINDOWS EXPLORER)</div>
+                    <div className="hm-comfy-folder-grid-wide">
+                      {[
+                        { id: "workflows", label: "Workflows" },
+                        { id: "output", label: "Output" },
+                        { id: "input", label: "Input" },
+                        { id: "custom_nodes", label: "Custom Nodes" },
+                        { id: "models", label: "Models" },
+                      ].map((f) => {
+                        const fInfo = cSt.folders?.[f.id];
+                        const canOpen = fInfo ? fInfo.openable : true;
+                        return (
+                          <button
+                            key={f.id}
+                            type="button"
+                            className="hm-comfy-folder-chip"
+                            disabled={!canOpen}
+                            onClick={async () => {
+                              const r = await openComfyFolderRequest(f.id, {
+                                ...cCfg,
+                                rootPath: activeRoot,
+                                customNodesPath: activeCn,
+                              });
+                              if (!r?.ok) {
+                                setComfyHubMsg({ type: "err", text: r?.error || `Could not open ${f.label}` });
+                              }
+                            }}
+                            title={fInfo?.path || `Open ComfyUI ${f.label} folder`}
+                          >
+                            <FolderOpen size={11} />
+                            <span>{f.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                <div className="hm-welcome-quick-steps hm-comfy-guide-grid">
+                  <div className="hm-welcome-step-pill is-static">
+                    <span className="hm-step-badge">1-Click Open</span>
+                    <div>
+                      <strong>New Workflow Tab + Window Focus</strong>
+                      <span>
+                        Right-click → <code>Open ▸ ComfyUI</code> or click{" "}
+                        <code>Open in ComfyUI</code> in Lightbox. Opens in a fresh tab without
+                        overwriting your current workflow.
+                      </span>
+                    </div>
+                  </div>
+                  <div className="hm-welcome-step-pill is-static">
+                    <span className="hm-step-badge">Auto-Wake</span>
+                    <div>
+                      <strong>Smart Sleeping Mode</strong>
+                      <span>
+                        When linked and ComfyUI is closed, Comfy actions dim quietly into Sleeping
+                        mode and wake automatically the moment ComfyUI boots.
+                      </span>
+                    </div>
+                  </div>
+                  <div className="hm-welcome-step-pill is-static">
+                    <span className="hm-step-badge">Clean JSON</span>
+                    <div>
+                      <strong>Save Workflow (.json)</strong>
+                      <span>
+                        Opens Windows Save As pre-pointed right at{" "}
+                        <code>user/default/workflows</code> (and sanitizes non-standard node JSON).
+                      </span>
+                    </div>
+                  </div>
+                  <div className="hm-welcome-step-pill is-static is-accent-card">
+                    <span className="hm-step-badge">Phase 2 · Next</span>
+                    <div>
+                      <strong>Hammelart Studio Nodes</strong>
+                      <span>
+                        Sniper-precision <code>Send Prompt (+ Autostart)</code> &amp;{" "}
+                        <code>Send Reference Image</code> targeting exact named nodes reliably.
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {activeTab === "updates" && (
             <div className="hm-welcome-pane" data-pane="updates">
               <div className="hm-update-status-card">
@@ -771,7 +1112,7 @@ export default function WelcomeModal({
                   <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
                   <div className="hm-update-title-row">
                     <span className="hm-update-ver-pill">
-                      Installed: v{updateInfo?.currentVersion || "0.9.5-beta.1"}
+                      Installed: v{updateInfo?.currentVersion || "0.9.6-beta"}
                     </span>
                     <span className="hm-update-mode-pill">
                       {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}

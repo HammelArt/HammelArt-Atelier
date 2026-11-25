@@ -477,7 +477,60 @@ def _apply_zip_update(app_root: str, userdata_dir: str, zip_url: str | None) -> 
             pass
 
 
+def _sync_comfy_bridge_after_update(app_root: str, userdata_dir: str) -> dict[str, Any]:
+    """Updates an already-installed ComfyUI-Atelier-Bridge if outdated after an Atelier update."""
+    try:
+        from backend.comfy_bridge import probe_comfy_status, sync_installed_bridge_if_needed
+    except Exception:
+        return {"ok": False, "updated": False}
+
+    cn_path = ""
+    root_path = ""
+    custom_url = "auto"
+    session_file = os.path.join(userdata_dir, "ui_session.json")
+    if os.path.isfile(session_file):
+        try:
+            with open(session_file, "r", encoding="utf-8") as f:
+                sess = json.load(f)
+            raw_cfg = sess.get("argon_cb_comfy_cfg_v1") if isinstance(sess, dict) else None
+            if isinstance(raw_cfg, str) and raw_cfg.strip():
+                cfg = json.loads(raw_cfg)
+                if isinstance(cfg, dict):
+                    cn_path = str(cfg.get("customNodesPath") or "")
+                    root_path = str(cfg.get("rootPath") or "")
+                    custom_url = str(cfg.get("url") or "auto")
+        except Exception:
+            pass
+
+    if not cn_path and not root_path:
+        try:
+            live = probe_comfy_status(app_root, custom_url)
+            cn_path = str(live.get("customNodesPath") or "")
+            root_path = str(live.get("rootPath") or "")
+        except Exception:
+            pass
+
+    if not cn_path and not root_path:
+        return {"ok": True, "updated": False}
+    return sync_installed_bridge_if_needed(app_root, cn_path, root_path)
+
+
 def apply_update(app_root: str, userdata_dir: str, zip_url: str | None = None) -> dict[str, Any]:
     if get_install_mode(app_root) == "git":
-        return _apply_git_update(app_root, userdata_dir)
-    return _apply_zip_update(app_root, userdata_dir, zip_url)
+        res = _apply_git_update(app_root, userdata_dir)
+    else:
+        res = _apply_zip_update(app_root, userdata_dir, zip_url)
+
+    if res.get("ok") and res.get("updated"):
+        bridge_sync = _sync_comfy_bridge_after_update(app_root, userdata_dir)
+        if bridge_sync.get("updated"):
+            to_ver = bridge_sync.get("to_version") or ""
+            from_ver = bridge_sync.get("from_version") or ""
+            ver_tag = f"v{from_ver} → v{to_ver}" if from_ver else f"v{to_ver}"
+            res["bridgeUpdated"] = True
+            res["bridgeVersion"] = to_ver
+            res["message"] = (
+                f"{res.get('message', '')} ComfyUI-Atelier-Bridge also updated ({ver_tag}) — "
+                "restart ComfyUI once if running."
+            ).strip()
+    return res

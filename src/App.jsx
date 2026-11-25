@@ -21,6 +21,10 @@ import {
   Minimize2,
   Bookmark,
   BookmarkPlus,
+  Workflow,
+  FolderOpen,
+  Power,
+  RefreshCw,
 } from "lucide-react";
 import { HAMMELART_CREST_PATH, ACCENT_SLOTS, applyThemeToDOM } from "./theme";
 import { FavMark, useCuration } from "./utils/curation";
@@ -29,7 +33,6 @@ import { captureTileFxTarget } from "./utils/deletionFx";
 import {
   buildStageRadialItems,
   buildTileRadialItems,
-  checkComfyStatus,
   recycleItemRequest,
   batchDeleteItemsRequest,
   moveBatchItemsRequest,
@@ -39,6 +42,15 @@ import {
   deleteFolderRequest,
   openFolderExplorerRequest,
 } from "./utils/radialBuilders";
+import {
+  loadComfyCfg,
+  saveComfyCfg,
+  deriveComfyUiState,
+  fetchComfyStatus,
+  publishComfyState,
+  installComfyBridgeRequest,
+  openComfyFolderRequest,
+} from "./utils/comfyBridge";
 import ConveyorBrick from "./components/ConveyorBrick";
 import ClassicGridEngine from "./components/ClassicGridEngine";
 import SlideshowEngine from "./components/SlideshowEngine";
@@ -623,7 +635,133 @@ export default function App() {
   const [hoveredBarZoneId, setHoveredBarZoneId] = useState(null);
   const [treeModalTarget, setTreeModalTarget] = useState(null);
   const [radialMenu, setRadialMenu] = useState(null);
-  const [comfyOnline, setComfyOnline] = useState(false);
+  const [comfyCfg, setComfyCfg] = useState(() => loadComfyCfg());
+  const [comfyStatus, setComfyStatus] = useState({
+    ok: true,
+    online: false,
+    state: "offline",
+    url: "",
+    clients: 0,
+    capabilities: [],
+    bundled_version: "",
+    bridge_version: "",
+    installed_on_disk: false,
+    installed_disk_version: "",
+    restart_needed: false,
+    update_available: false,
+    rootPath: "",
+    customNodesPath: "",
+    workflowsPath: "",
+    folders: {},
+  });
+  const [comfyPopoverOpen, setComfyPopoverOpen] = useState(false);
+  const [comfyBusy, setComfyBusy] = useState(false);
+  const [comfyPopMsg, setComfyPopMsg] = useState(null);
+  const comfyPopoverRef = useRef(null);
+  const comfyCfgRef = useRef(comfyCfg);
+  comfyCfgRef.current = comfyCfg;
+
+  const comfyUiState = useMemo(
+    () => deriveComfyUiState(comfyCfg, comfyStatus),
+    [comfyCfg, comfyStatus]
+  );
+
+  const refreshComfyStatus = useCallback(async (overrideCfg = null) => {
+    const activeCfg = overrideCfg || comfyCfgRef.current;
+    const res = await fetchComfyStatus(activeCfg);
+    if (!res || typeof res !== "object") return res;
+    setComfyStatus(res);
+
+    let nextCfg = activeCfg;
+    if (res.online && (res.rootPath || res.customNodesPath || res.workflowsPath)) {
+      const nextRoot = res.rootPath || activeCfg.rootPath;
+      const nextCn = res.customNodesPath || activeCfg.customNodesPath;
+      const nextWf = res.workflowsPath || activeCfg.workflowsPath;
+      if (
+        nextRoot !== activeCfg.rootPath ||
+        nextCn !== activeCfg.customNodesPath ||
+        nextWf !== activeCfg.workflowsPath
+      ) {
+        nextCfg = saveComfyCfg({
+          rootPath: nextRoot,
+          customNodesPath: nextCn,
+          workflowsPath: nextWf,
+        });
+        setComfyCfg(nextCfg);
+      }
+    }
+    publishComfyState(nextCfg, res);
+    return res;
+  }, []);
+
+  useEffect(() => {
+    publishComfyState(comfyCfg, comfyStatus);
+  }, [comfyCfg, comfyStatus]);
+
+  useEffect(() => {
+    const onCfgSync = (ev) => {
+      const next = ev?.detail || loadComfyCfg();
+      setComfyCfg(next);
+    };
+    const onRefreshReq = () => {
+      refreshComfyStatus();
+    };
+    const onOpenHub = () => {
+      setComfyPopoverOpen(false);
+      setTourOpen(false);
+      setWelcomeInitialTab("comfy");
+      setWelcomeOpen(true);
+    };
+    window.addEventListener("hm:comfy-cfg-sync", onCfgSync);
+    window.addEventListener("hm:comfy-refresh-request", onRefreshReq);
+    window.addEventListener("hm:open-comfy-hub", onOpenHub);
+    return () => {
+      window.removeEventListener("hm:comfy-cfg-sync", onCfgSync);
+      window.removeEventListener("hm:comfy-refresh-request", onRefreshReq);
+      window.removeEventListener("hm:open-comfy-hub", onOpenHub);
+    };
+  }, [refreshComfyStatus]);
+
+  useEffect(() => {
+    const bootTimer = setTimeout(() => {
+      refreshComfyStatus();
+    }, 650);
+    const intervalId = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      refreshComfyStatus();
+    }, 8000);
+    const onFocusOrVis = () => {
+      if (typeof document === "undefined" || !document.hidden) {
+        refreshComfyStatus();
+      }
+    };
+    window.addEventListener("focus", onFocusOrVis);
+    document.addEventListener("visibilitychange", onFocusOrVis);
+    return () => {
+      clearTimeout(bootTimer);
+      clearInterval(intervalId);
+      window.removeEventListener("focus", onFocusOrVis);
+      document.removeEventListener("visibilitychange", onFocusOrVis);
+    };
+  }, [refreshComfyStatus]);
+
+  useEffect(() => {
+    if (!comfyPopoverOpen) return;
+    const onDown = (e) => {
+      if (comfyPopoverRef.current && !comfyPopoverRef.current.contains(e.target)) {
+        setComfyPopoverOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setComfyPopoverOpen(false);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [comfyPopoverOpen]);
   const [noteTarget, setNoteTarget] = useState(null);
   const [lightboxExiting, setLightboxExiting] = useState(false);
   const [peekLabels, setPeekLabels] = useState(false);
@@ -3303,7 +3441,7 @@ export default function App() {
         items: buildTileRadialItems({
           item: radialMenu.item,
           curation,
-          comfyOnline,
+          comfyState: { cfg: comfyCfg, status: comfyStatus, uiState: comfyUiState },
           inPurgatoryView: purgatoryOpen,
           batchCount,
           queuedTableCount: tablePileQueue.length,
@@ -3349,7 +3487,6 @@ export default function App() {
     };
   }, [
     radialMenu,
-    comfyOnline,
     curation,
     appMode,
     purgatoryOpen,
@@ -3360,6 +3497,9 @@ export default function App() {
     searchFavOnly,
     drawerOpen,
     tablePileQueue.length,
+    comfyCfg,
+    comfyStatus,
+    comfyUiState,
   ]);
 
   const openGalleryRadialAt = (clientX, clientY, targetEl, shiftHeld = false) => {
@@ -3378,7 +3518,7 @@ export default function App() {
     const key = tileFx?.getAttribute?.("data-lb-key");
     const item = key ? rawItemMap.get(key) : null;
     if (item) {
-      checkComfyStatus().then(setComfyOnline);
+      refreshComfyStatus();
     }
     setRadialMenu({
       kind: item ? "tile" : "stage",
@@ -3991,6 +4131,220 @@ export default function App() {
               <SlidersHorizontal size={13} />
               {drawerOpen ? "Editing…" : !purgatoryOpen && appMode === "wall" ? "Edit Wall" : "Customize"}
             </button>
+
+            <div className="hm-comfy-pill-wrap" ref={comfyPopoverRef}>
+              <button
+                type="button"
+                className={`hm-btn hm-comfy-pill is-${comfyUiState} ${
+                  comfyPopoverOpen ? "active is-open" : ""
+                }`}
+                onClick={() => {
+                  const nextOpen = !comfyPopoverOpen;
+                  setComfyPopoverOpen(nextOpen);
+                  if (nextOpen) refreshComfyStatus();
+                }}
+                title={
+                  comfyUiState === "connected"
+                    ? `ComfyUI Connected (${comfyStatus.url || "local"})`
+                    : comfyUiState === "sleeping"
+                    ? "ComfyUI is currently not running (Sleeping Mode). Wakes automatically when ComfyUI starts."
+                    : comfyUiState === "detected"
+                    ? `ComfyUI Bridge detected (${comfyStatus.url || "local"}) — Click to connect`
+                    : comfyUiState === "needs_bridge"
+                    ? "ComfyUI detected — Click to install ComfyUI-Atelier-Bridge"
+                    : "ComfyUI Integration (Off — Click to link or open Setup)"
+                }
+                aria-expanded={comfyPopoverOpen}
+              >
+                <span className={`hm-comfy-dot is-${comfyUiState}`} aria-hidden="true" />
+                <Workflow size={13} />
+                <span>ComfyUI</span>
+                {comfyUiState !== "off" && (
+                  <span className="hm-comfy-state-tag">
+                    {comfyUiState === "connected"
+                      ? "Live"
+                      : comfyUiState === "sleeping"
+                      ? "Sleeping"
+                      : comfyUiState === "detected"
+                      ? "Detected"
+                      : "Setup"}
+                  </span>
+                )}
+              </button>
+
+              {comfyPopoverOpen && (
+                <div className="hm-comfy-popover" role="dialog" aria-label="ComfyUI Connection">
+                  <div className="hm-comfy-pop-head">
+                    <div>
+                      <div className="hm-comfy-pop-title">
+                        <span className={`hm-comfy-dot is-${comfyUiState}`} aria-hidden="true" />
+                        <span>
+                          {comfyUiState === "connected"
+                            ? "ComfyUI Connected"
+                            : comfyUiState === "sleeping"
+                            ? "ComfyUI Sleeping"
+                            : comfyUiState === "detected"
+                            ? "ComfyUI Bridge Detected"
+                            : comfyUiState === "needs_bridge"
+                            ? comfyStatus.restart_needed
+                              ? "Restart ComfyUI Once"
+                              : "Needs Atelier Bridge"
+                            : "ComfyUI Link Off"}
+                        </span>
+                      </div>
+                      <div className="hm-comfy-pop-sub">
+                        {comfyUiState === "connected"
+                          ? `${comfyStatus.url || "127.0.0.1"} · ${comfyStatus.clients || 0} active tab${
+                              (comfyStatus.clients || 0) === 1 ? "" : "s"
+                            }`
+                          : comfyUiState === "sleeping"
+                          ? "ComfyUI is not running right now. Comfy actions stay visible in dim Sleeping mode and wake automatically when ComfyUI boots."
+                          : comfyUiState === "detected"
+                          ? `Ready at ${comfyStatus.url}. Connect once to unlock 1-click "Open in ComfyUI".`
+                          : comfyUiState === "needs_bridge"
+                          ? comfyStatus.restart_needed
+                            ? "Bridge files installed in custom_nodes! Restart ComfyUI once to activate."
+                            : "ComfyUI is running — drop the tiny zero-node bridge into custom_nodes in 1 click."
+                          : "Keep clean for non-Comfy users, or enable link so Atelier wakes whenever ComfyUI starts."}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="hm-icon-btn sm"
+                      onClick={() => refreshComfyStatus()}
+                      title="Re-scan ComfyUI ports (8188 / 8000)"
+                    >
+                      <RefreshCw size={12} />
+                    </button>
+                  </div>
+
+                  {comfyUiState === "needs_bridge" && (comfyStatus.customNodesPath || comfyStatus.rootPath) ? (
+                    <button
+                      type="button"
+                      className="hm-comfy-pop-cta"
+                      disabled={comfyBusy || comfyStatus.restart_needed}
+                      onClick={async () => {
+                        setComfyBusy(true);
+                        setComfyPopMsg(null);
+                        try {
+                          const res = await installComfyBridgeRequest({
+                            customNodesPath: comfyStatus.customNodesPath || comfyCfg.customNodesPath,
+                            rootPath: comfyStatus.rootPath || comfyCfg.rootPath,
+                          });
+                          if (res?.ok) {
+                            const next = saveComfyCfg({
+                              enabled: true,
+                              customNodesPath: res.customNodesPath || comfyCfg.customNodesPath,
+                            });
+                            setComfyCfg(next);
+                            setComfyPopMsg("Installed! Restart ComfyUI once to activate.");
+                            await refreshComfyStatus(next);
+                          } else {
+                            setComfyPopMsg(res?.error || "Install failed.");
+                          }
+                        } finally {
+                          setComfyBusy(false);
+                        }
+                      }}
+                    >
+                      <Workflow size={13} />
+                      <span>
+                        {comfyBusy
+                          ? "Installing…"
+                          : comfyStatus.restart_needed
+                          ? "Bridge Installed (Restart ComfyUI)"
+                          : "1-Click Install Atelier Bridge"}
+                      </span>
+                    </button>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    className={`hm-comfy-pop-cta ${comfyCfg.enabled ? "is-secondary" : ""}`}
+                    onClick={async () => {
+                      const next = saveComfyCfg({ enabled: !comfyCfg.enabled });
+                      setComfyCfg(next);
+                      setComfyPopMsg(null);
+                      await refreshComfyStatus(next);
+                    }}
+                  >
+                    <Power size={13} />
+                    <span>
+                      {comfyCfg.enabled
+                        ? "Disconnect ComfyUI Link"
+                        : comfyUiState === "detected"
+                        ? "Connect & Unlock ComfyUI Actions"
+                        : "Enable ComfyUI Link"}
+                    </span>
+                  </button>
+
+                  {comfyPopMsg && <div className="lb-workflow-msg">{comfyPopMsg}</div>}
+
+                  {(comfyStatus.rootPath || comfyCfg.rootPath) && (
+                    <div className="hm-comfy-folders-wrap">
+                      <div className="hm-comfy-folders-label">
+                        <span>Quick-Open Comfy Folders</span>
+                      </div>
+                      <div
+                        className="hm-comfy-folders-path"
+                        title={comfyStatus.rootPath || comfyCfg.rootPath}
+                      >
+                        {comfyStatus.rootPath || comfyCfg.rootPath}
+                      </div>
+                      <div className="hm-comfy-folders-grid">
+                        {[
+                          { id: "workflows", label: "Workflows" },
+                          { id: "output", label: "Output" },
+                          { id: "input", label: "Input" },
+                          { id: "custom_nodes", label: "Nodes" },
+                          { id: "models", label: "Models" },
+                        ].map((f) => {
+                          const fInfo = comfyStatus.folders?.[f.id];
+                          const canOpen = fInfo ? fInfo.openable : true;
+                          return (
+                            <button
+                              key={f.id}
+                              type="button"
+                              className="hm-comfy-folder-chip"
+                              disabled={!canOpen}
+                              onClick={async () => {
+                                const r = await openComfyFolderRequest(f.id, {
+                                  ...comfyCfg,
+                                  rootPath: comfyStatus.rootPath || comfyCfg.rootPath,
+                                  customNodesPath:
+                                    comfyStatus.customNodesPath || comfyCfg.customNodesPath,
+                                });
+                                if (!r?.ok) setComfyPopMsg(r?.error || `Could not open ${f.label}`);
+                              }}
+                              title={fInfo?.path || `Open ${f.label} folder`}
+                            >
+                              <FolderOpen size={11} />
+                              <span>{f.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="hm-comfy-pop-foot">
+                    <button
+                      type="button"
+                      className="hm-comfy-hub-link"
+                      onClick={() => {
+                        setComfyPopoverOpen(false);
+                        setTourOpen(false);
+                        setWelcomeInitialTab("comfy");
+                        setWelcomeOpen(true);
+                      }}
+                    >
+                      <Workflow size={12} />
+                      <span>Open ? → 05 ComfyUI Hub</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             <button
               type="button"
