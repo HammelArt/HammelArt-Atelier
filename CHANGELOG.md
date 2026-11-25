@@ -2,6 +2,10 @@
 
 All notable changes to **HammelArt Atelier** are documented in this file.
 
+## [v0.9.5-beta.1] - 2026-11-25 — Theme-Synced Welcome, Updates & Tour Accents
+### Fixed
+- **Dynamic Accent Colors in Welcome, Updates & Spotlight Tour:** Replaced remaining hardcoded purple hexes (`#c084fc`, `#c4b5fd`, `#e9d5ff`, `#9333ea`) across `.hm-welcome-eyebrow`, tab numbers (`01`–`05`), `Git Sync Install` / `Patch Notes` headers, `STEP 1–4` badges, `✦` callout icon, Tour button, and the Un-Blur Spotlight Tour overlay/SVG arrows with `var(--hm-accent*)` theme variables so Solar Amber, Emerald, Cyan, and Obsidian tint cleanly everywhere.
+
 ## [v0.9.5-beta] - 2026-11-25 — Smart Saved Filter Presets & Pixaroma Node Support
 ### Added
 - **Pixaroma Node Graph & LoRA Extraction (`metadata_engine.py`, `meta_version: 3`):** Added native support for `PixaromaPrompt` (`PromptState` + wired `text_in`), `PixaromaSwitch` (`SwitchState` / `input_N`), `PixaromaPauseText` (`PauseState`), `PixaromaAIPrompt`, `PixaromaLoraLoader` (`LoraLoaderState` active `on: true` LoRAs), and `PixaromaSaveImage` — automatically re-indexing existing library caches (`meta_version: 3`).

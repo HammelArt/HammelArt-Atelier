@@ -234,13 +234,13 @@ export default function SpotlightTour({ isOpen, onClose, onReopenWelcome }) {
               refY="3.5"
               orient="auto"
             >
-              <polygon points="0 0, 8 3.5, 0 7" fill="#c084fc" />
+              <polygon points="0 0, 8 3.5, 0 7" fill="var(--hm-accent-bright, #c084fc)" />
             </marker>
           </defs>
           <path
             d={pathD}
             fill="none"
-            stroke="#c084fc"
+            stroke="var(--hm-accent-bright, #c084fc)"
             strokeWidth="2.5"
             strokeLinecap="round"
             markerEnd="url(#hm-tour-arrowhead)"

@@ -318,7 +318,7 @@ export default function WelcomeModal({
       return {
         mode: "stack",
         activeTabKey: "new",
-        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.5-beta"} (${newerReleases.length} releases)`,
+        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.5-beta.1"} (${newerReleases.length} releases)`,
         publishedAt: newerReleases[0]?.publishedAt || "",
         url: newerReleases[0]?.url || fallbackUrl,
         items: newerReleases,
@@ -771,7 +771,7 @@ export default function WelcomeModal({
                   <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
                   <div className="hm-update-title-row">
                     <span className="hm-update-ver-pill">
-                      Installed: v{updateInfo?.currentVersion || "0.9.5-beta"}
+                      Installed: v{updateInfo?.currentVersion || "0.9.5-beta.1"}
                     </span>
                     <span className="hm-update-mode-pill">
                       {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}

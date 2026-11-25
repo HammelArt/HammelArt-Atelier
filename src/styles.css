@@ -7735,7 +7735,7 @@ button.hm-sb-count:hover {
   font-size: 10.5px;
   letter-spacing: 0.14em;
   font-weight: 600;
-  color: #c084fc;
+  color: var(--hm-accent-bright, #c084fc);
   margin-bottom: 3px;
 }
 
@@ -7808,7 +7808,7 @@ button.hm-sb-count:hover {
 .hm-welcome-tab-num {
   font-size: 11px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #c084fc;
+  color: var(--hm-accent-bright, #c084fc);
   opacity: 0.85;
 }
 
@@ -7864,9 +7864,9 @@ button.hm-sb-count:hover {
 }
 
 .hm-update-mode-pill {
-  color: #c4b5fd;
-  border-color: rgba(168, 85, 247, 0.35);
-  background: rgba(168, 85, 247, 0.12);
+  color: var(--hm-accent-bright, #c4b5fd);
+  border-color: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.35);
+  background: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.12);
 }
 
 .hm-update-state-pill.is-available {
@@ -7902,8 +7902,8 @@ button.hm-sb-count:hover {
 }
 
 .hm-update-gh-link:hover {
-  background: rgba(168, 85, 247, 0.2);
-  border-color: rgba(192, 132, 252, 0.5);
+  background: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.2);
+  border-color: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.5);
 }
 
 .hm-update-notes-wrap {
@@ -7925,7 +7925,7 @@ button.hm-sb-count:hover {
   padding: 10px 14px;
   font-size: 12px;
   font-weight: 600;
-  color: #c4b5fd;
+  color: var(--hm-accent-bright, #c4b5fd);
   background: rgba(255, 255, 255, 0.03);
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   flex-shrink: 0;
@@ -8211,7 +8211,7 @@ button.hm-sb-count:hover {
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.22);
-  color: #e9d5ff;
+  color: var(--hm-accent-bright, #e9d5ff);
 }
 
 .hm-welcome-step-pill strong {
@@ -8372,7 +8372,7 @@ button.hm-sb-count:hover {
 }
 
 .hm-callout-icon {
-  color: #c084fc;
+  color: var(--hm-accent-bright, #c084fc);
   font-size: 16px;
   line-height: 1.3;
   flex-shrink: 0;
@@ -8381,20 +8381,20 @@ button.hm-sb-count:hover {
 .hm-welcome-callout > div > strong {
   display: block;
   font-size: 13px;
-  color: #f3e8ff;
+  color: #f4f4fa;
   margin-bottom: 3px;
 }
 
 .hm-welcome-callout p {
   font-size: 12.5px;
   line-height: 1.5;
-  color: #c3bbd6;
+  color: #c4c4d8;
 }
 
 .hm-welcome-callout p strong {
   display: inline;
   font-size: inherit;
-  color: #f3e8ff;
+  color: #f4f4fa;
   font-weight: 700;
   margin: 0;
 }
@@ -9627,7 +9627,7 @@ button.hm-sb-count:hover {
 .hm-welcome-btn-tour {
   background: rgba(var(--hm-accent-rgb, 168, 85, 247), 0.16);
   border: 1px solid rgba(var(--hm-accent-rgb, 168, 85, 247), 0.5);
-  color: #e9d5ff;
+  color: var(--hm-accent-bright, #e9d5ff);
 }
 
 .hm-welcome-btn-tour:hover {
@@ -9667,10 +9667,10 @@ button.hm-sb-count:hover {
 .hm-tour-ring {
   position: fixed;
   border-radius: 11px;
-  border: 2px solid #c084fc;
+  border: 2px solid var(--hm-accent-bright, #c084fc);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.28) inset,
-    0 0 28px rgba(168, 85, 247, 0.58);
+    0 0 28px var(--hm-accent-glow, rgba(168, 85, 247, 0.58));
   pointer-events: none;
   transition: left 0.22s ease, top 0.22s ease, width 0.22s ease, height 0.22s ease;
 }
@@ -9687,10 +9687,10 @@ button.hm-sb-count:hover {
   padding: 16px 18px;
   border-radius: 14px;
   background: rgba(15, 13, 24, 0.97);
-  border: 1px solid rgba(192, 132, 252, 0.55);
+  border: 1px solid var(--hm-accent-border, rgba(192, 132, 252, 0.55));
   box-shadow:
     0 22px 54px rgba(0, 0, 0, 0.72),
-    0 0 32px rgba(168, 85, 247, 0.2);
+    0 0 32px var(--hm-accent-glow, rgba(168, 85, 247, 0.2));
   color: #f4f4f8;
   transition: left 0.22s ease, top 0.22s ease;
 }
@@ -9707,7 +9707,7 @@ button.hm-sb-count:hover {
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #c084fc;
+  color: var(--hm-accent-bright, #c084fc);
 }
 
 .hm-tour-close {
@@ -9760,7 +9760,7 @@ button.hm-sb-count:hover {
 
 .hm-tour-dot.is-active {
   width: 20px;
-  background: #c084fc;
+  background: var(--hm-accent-bright, #c084fc);
 }
 
 .hm-tour-actions {
@@ -9811,8 +9811,8 @@ button.hm-sb-count:hover {
 }
 
 .hm-tour-btn-primary {
-  background: linear-gradient(135deg, #9333ea 0%, #a855f7 100%);
-  border: 1px solid rgba(216, 180, 254, 0.55);
+  background: linear-gradient(135deg, var(--hm-accent, #9333ea) 0%, var(--hm-accent-bright, #a855f7) 100%);
+  border: 1px solid var(--hm-accent-border, rgba(216, 180, 254, 0.55));
   color: #ffffff;
 }
 
