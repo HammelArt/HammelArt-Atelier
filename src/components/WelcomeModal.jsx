@@ -125,8 +125,9 @@ const SHORTCUT_GROUPS = [
       { keys: ["F"], desc: "Toggle Favorite (selected cards or hovered card)" },
       { keys: ["Ctrl", "+", "A"], desc: "Select all visible cards (or active Wall Zone)" },
       { keys: ["X", "/", "Del"], desc: "Send to Purgatory (or Rescue when inside Purgatory)" },
-      { keys: ["Shift", "+", "X", "/", "Del"], desc: "Permanently erase from SSD (bypass Purgatory)" },
+      { keys: ["Shift", "+", "X", "/", "Del"], desc: "Permanently delete file from disk (bypass Purgatory)" },
       { keys: ["Right-Click"], desc: "Open Context Radial Wheel on card or stage" },
+      { keys: ["Shift", "+", "Radial"], desc: "Live-morph wheel (+ To Pile quiet stage · Del Now! instant delete)" },
       { keys: ["Esc"], desc: "Clear multi-selection or close active modal" },
     ],
   },
@@ -158,6 +159,8 @@ const SHORTCUT_GROUPS = [
       { keys: ["Dbl-Click Video"], desc: "Toggle native monitor Fullscreen" },
       { keys: ["0", "/", "1"], desc: "Fit to viewport (0) or crisp 1:1 native pixels (1)" },
       { keys: ["I", "/", "H"], desc: "Toggle Info & FX drawer (I) or Pure View hide HUD (H)" },
+      { keys: ["Click Spec / Pill"], desc: "Copy exact value or bare filename (toggle fields in Lightbox FX)" },
+      { keys: ["Wheel on Strip"], desc: "Scroll bottom thumbnail filmstrip left & right" },
       { keys: ["F", "/", "X", "/", "Del"], desc: "Favorite (F) · Purgatory (X/Del) · Delete (+ Shift)" },
       { keys: ["Right-Click"], desc: "Open Lightbox Radial Menu" },
       { keys: ["Esc", "or", "Backdrop"], desc: "Exit Fullscreen first, or close Lightbox" },
@@ -172,6 +175,8 @@ const SHORTCUT_GROUPS = [
       { keys: ["←", "/", "→", "or", "A", "/", "D"], desc: "Step Previous / Next card when hovered or active" },
       { keys: ["Space"], desc: "Pause / Resume automatic advancing" },
       { keys: ["Wheel ↑/↓"], desc: "Rotate Table Pile card tilt gently while hovering or dragging" },
+      { keys: ["Hover Video (300ms)"], desc: "Fade in living-photo audio on Table Pile videos (leave silences)" },
+      { keys: ["M"], desc: "Mute / Unmute Table Pile living-photo hover audio" },
       { keys: ["Grab & Fling"], desc: "Toss scattered photo prints; Radial Tape Pin locks position" },
       { keys: ["Maximize"], desc: "Enter distraction-free Fullscreen Showcase (Esc exits)" },
     ],
@@ -261,6 +266,7 @@ export default function WelcomeModal({
   const [statusMsg, setStatusMsg] = useState(null); // { type: 'ok' | 'err' | 'info', text: string }
   const [shortcutFilter, setShortcutFilter] = useState("all");
   const [shortcutQuery, setShortcutQuery] = useState("");
+  const [selectedReleaseTab, setSelectedReleaseTab] = useState("auto");
 
   useEffect(() => {
     if (isOpen) {
@@ -268,8 +274,73 @@ export default function WelcomeModal({
       setPathInput(activeRootPath || "");
       setStatusMsg(null);
       setShortcutQuery("");
+      setSelectedReleaseTab("auto");
     }
   }, [isOpen, initialTab, activeRootPath, roots.length]);
+
+  useEffect(() => {
+    setSelectedReleaseTab("auto");
+  }, [updateInfo?.latestTag]);
+
+  const releaseHistory = useMemo(
+    () => (Array.isArray(updateInfo?.releases) ? updateInfo.releases : []),
+    [updateInfo?.releases]
+  );
+  const newerReleases = useMemo(
+    () => releaseHistory.filter((r) => r.isNewer),
+    [releaseHistory]
+  );
+  const activeReleaseView = useMemo(() => {
+    const fallbackUrl = updateInfo?.releaseUrl || "https://github.com/HammelArt/HammelArt-Atelier/releases";
+    if (releaseHistory.length === 0) {
+      return {
+        mode: "single",
+        heading: updateInfo?.releaseName ? `Patch Notes · ${updateInfo.releaseName}` : "Release Patch Notes",
+        publishedAt: updateInfo?.publishedAt || "",
+        url: fallbackUrl,
+        items: updateInfo?.patchNotes ? [{ tag: updateInfo?.latestTag || "latest", name: "", body: updateInfo.patchNotes, isNewer: false }] : [],
+      };
+    }
+
+    const effectiveMode =
+      selectedReleaseTab === "auto"
+        ? newerReleases.length > 1
+          ? "new"
+          : releaseHistory[0]?.tag || "all"
+        : selectedReleaseTab;
+
+    if (effectiveMode === "new" && newerReleases.length > 0) {
+      return {
+        mode: "stack",
+        activeTabKey: "new",
+        heading: `What's New Since v${updateInfo?.currentVersion || "0.9.4-beta"} (${newerReleases.length} releases)`,
+        publishedAt: newerReleases[0]?.publishedAt || "",
+        url: newerReleases[0]?.url || fallbackUrl,
+        items: newerReleases,
+      };
+    }
+
+    if (effectiveMode === "all") {
+      return {
+        mode: "stack",
+        activeTabKey: "all",
+        heading: `Full Release History (${releaseHistory.length} releases)`,
+        publishedAt: releaseHistory[0]?.publishedAt || "",
+        url: fallbackUrl,
+        items: releaseHistory,
+      };
+    }
+
+    const picked = releaseHistory.find((r) => r.tag === effectiveMode) || releaseHistory[0];
+    return {
+      mode: "single",
+      activeTabKey: picked?.tag || "",
+      heading: picked?.name ? `Patch Notes · ${picked.name}` : `Patch Notes · ${picked?.tag || "Latest"}`,
+      publishedAt: picked?.publishedAt || "",
+      url: picked?.url || fallbackUrl,
+      items: picked ? [picked] : [],
+    };
+  }, [releaseHistory, newerReleases, selectedReleaseTab, updateInfo]);
 
   const filteredShortcutGroups = useMemo(() => {
     const q = shortcutQuery.trim().toLowerCase();
@@ -678,7 +749,7 @@ export default function WelcomeModal({
                   <div className="hm-root-label">HAMMELART ATELIER RELEASE TRACKER</div>
                   <div className="hm-update-title-row">
                     <span className="hm-update-ver-pill">
-                      Installed: v{updateInfo?.currentVersion || "0.9.3-beta"}
+                      Installed: v{updateInfo?.currentVersion || "0.9.4-beta"}
                     </span>
                     <span className="hm-update-mode-pill">
                       {updateInfo?.installMode === "git" ? "Git Sync Install" : "Portable ZIP Install"}
@@ -696,7 +767,7 @@ export default function WelcomeModal({
                 </div>
                 <a
                   className="hm-update-gh-link"
-                  href={updateInfo?.releaseUrl || "https://github.com/HammelArt/HammelArt-Atelier/releases"}
+                  href={activeReleaseView.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Open release page on GitHub"
@@ -708,25 +779,89 @@ export default function WelcomeModal({
 
               <div className="hm-update-notes-wrap">
                 <div className="hm-update-notes-head">
-                  <span>
-                    {updateInfo?.releaseName
-                      ? `Patch Notes · ${updateInfo.releaseName}`
-                      : "Release Patch Notes"}
-                  </span>
-                  {updateInfo?.publishedAt && (
+                  <span>{activeReleaseView.heading}</span>
+                  {activeReleaseView.publishedAt && (
                     <span className="hm-update-pub-date">
-                      {new Date(updateInfo.publishedAt).toLocaleDateString()}
+                      {new Date(activeReleaseView.publishedAt).toLocaleDateString()}
                     </span>
                   )}
                 </div>
+                {releaseHistory.length > 1 && (
+                  <div className="hm-update-ver-tabs" role="tablist" aria-label="Select release patch notes">
+                    {newerReleases.length > 1 && (
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activeReleaseView.activeTabKey === "new"}
+                        className={`hm-update-ver-tab is-new ${
+                          activeReleaseView.activeTabKey === "new" ? "active" : ""
+                        }`}
+                        onClick={() => setSelectedReleaseTab("new")}
+                      >
+                        All New ({newerReleases.length})
+                      </button>
+                    )}
+                    {releaseHistory.slice(0, 6).map((rel) => {
+                      const isAct = activeReleaseView.activeTabKey === rel.tag;
+                      return (
+                        <button
+                          key={rel.tag}
+                          type="button"
+                          role="tab"
+                          aria-selected={isAct}
+                          className={`hm-update-ver-tab ${isAct ? "active" : ""} ${
+                            rel.isNewer ? "is-newer" : ""
+                          }`}
+                          onClick={() => setSelectedReleaseTab(rel.tag)}
+                        >
+                          {rel.tag}
+                        </button>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={activeReleaseView.activeTabKey === "all"}
+                      className={`hm-update-ver-tab ${
+                        activeReleaseView.activeTabKey === "all" ? "active" : ""
+                      }`}
+                      onClick={() => setSelectedReleaseTab("all")}
+                    >
+                      All History
+                    </button>
+                  </div>
+                )}
                 <div className="hm-update-notes-box">
-                  {updateInfo?.patchNotes
-                    ? renderPatchNotesMarkdown(updateInfo.patchNotes)
-                    : (
-                        <p className="hm-md-p is-empty">
-                          No release notes loaded yet. Click “Check for Updates” or view releases on GitHub.
-                        </p>
-                      )}
+                  {activeReleaseView.items.length > 0 ? (
+                    activeReleaseView.items.map((rel, idx) => (
+                      <div
+                        key={rel.tag || idx}
+                        className={`hm-update-rel-block ${
+                          activeReleaseView.mode === "stack" && idx > 0 ? "has-divider" : ""
+                        }`}
+                      >
+                        {activeReleaseView.mode === "stack" && (
+                          <div className="hm-update-rel-banner">
+                            <span className="hm-update-rel-tag">{rel.tag}</span>
+                            {rel.publishedAt && (
+                              <span className="hm-update-rel-date">
+                                {new Date(rel.publishedAt).toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {rel.body ? (
+                          renderPatchNotesMarkdown(rel.body)
+                        ) : (
+                          <p className="hm-md-p is-empty">No detailed notes written for {rel.tag}.</p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="hm-md-p is-empty">
+                      No release notes loaded yet. Click “Check for Updates” or view releases on GitHub.
+                    </p>
+                  )}
                 </div>
               </div>
 

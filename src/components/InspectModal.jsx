@@ -123,6 +123,8 @@ export default function InspectModal({
   const teleOriginRef = useRef(null);
   const teleHoloRef = useRef(null);
   const filmstripRef = useRef(null);
+  const filmstripBoxRef = useRef(null);
+  const filmstripGlideRef = useRef({ raf: 0, pos: 0, target: null, lastTs: 0 });
   const idleTimerRef = useRef(null);
   const panRef = useRef({ active: false, sx: 0, sy: 0, stx: 0, sty: 0, moved: false });
   const [isPanning, setIsPanning] = useState(false);
@@ -204,6 +206,10 @@ export default function InspectModal({
       exitAllFullscreen();
       return;
     }
+
+    // Reset zoom & pan so true fullscreen always lands on clean border-to-border fit
+    setZoomSmooth(false);
+    setZoom({ scale: 1, tx: 0, ty: 0 });
 
     // Engage zero-chrome pitch-black cinema mode synchronously so WebView/embedded frames never hang
     setFsFallback(true);
@@ -1211,12 +1217,97 @@ export default function InspectModal({
     handlePurgatoryInsideLightbox,
   ]);
 
+  const stopFilmstripGlide = useCallback(() => {
+    const g = filmstripGlideRef.current;
+    if (g.raf) {
+      cancelAnimationFrame(g.raf);
+      g.raf = 0;
+    }
+    g.target = null;
+    g.lastTs = 0;
+  }, []);
+
   // Auto-scroll active thumbnail into view in filmstrip
   useEffect(() => {
+    stopFilmstripGlide();
     if (!cfg.filmstripOpen || !filmstripRef.current || currentIdx < 0) return;
     const activeEl = filmstripRef.current.children?.[currentIdx];
     activeEl?.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
-  }, [cfg.filmstripOpen, currentIdx]);
+  }, [cfg.filmstripOpen, currentIdx, stopFilmstripGlide]);
+
+  // Smooth rAF wheel glide for the bottom filmstrip (tames stepped mouse wheels & supports trackpads)
+  const filmstripVisible = Boolean(cfg.filmstripOpen && !pureView && scopedItems.length > 1);
+  useEffect(() => {
+    const box = filmstripBoxRef.current;
+    if (!filmstripVisible || !box) {
+      stopFilmstripGlide();
+      return;
+    }
+
+    const g = filmstripGlideRef.current;
+    const stepGlide = (ts) => {
+      const trackEl = filmstripRef.current;
+      if (!trackEl || g.target == null) {
+        g.raf = 0;
+        g.lastTs = 0;
+        return;
+      }
+      const maxScroll = Math.max(0, trackEl.scrollWidth - trackEl.clientWidth);
+      const target = Math.max(0, Math.min(maxScroll, g.target));
+      g.target = target;
+
+      const diff = target - g.pos;
+      if (Math.abs(diff) <= 0.5) {
+        trackEl.scrollLeft = target;
+        g.pos = target;
+        g.raf = 0;
+        g.target = null;
+        g.lastTs = 0;
+        return;
+      }
+
+      const dt = g.lastTs ? Math.min(0.05, Math.max(0.001, (ts - g.lastTs) / 1000)) : 1 / 60;
+      g.lastTs = ts;
+      const alpha = 1 - Math.exp(-16 * dt);
+      g.pos += diff * alpha;
+      trackEl.scrollLeft = g.pos;
+      g.raf = requestAnimationFrame(stepGlide);
+    };
+
+    const onWheel = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const trackEl = filmstripRef.current;
+      if (!trackEl) return;
+
+      let raw = Math.abs(e.deltaY) >= Math.abs(e.deltaX) ? e.deltaY : e.deltaX;
+      if (!raw) return;
+      if (e.deltaMode === 1) raw *= 32;
+      else if (e.deltaMode === 2) raw *= trackEl.clientWidth * 0.8;
+
+      // Gently tame discrete notched mouse jumps (~75-90px = ~1.1-1.3 thumbs) while keeping trackpad 1:1
+      const step = Math.abs(raw) >= 40 ? raw * 0.75 : raw;
+      const maxScroll = Math.max(0, trackEl.scrollWidth - trackEl.clientWidth);
+      if (maxScroll <= 0) return;
+
+      if (!g.raf || g.target == null) {
+        g.pos = trackEl.scrollLeft;
+        g.target = trackEl.scrollLeft;
+      }
+      g.target = Math.max(0, Math.min(maxScroll, g.target + step));
+
+      if (!g.raf) {
+        g.lastTs = 0;
+        g.raf = requestAnimationFrame(stepGlide);
+      }
+    };
+
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      box.removeEventListener("wheel", onWheel);
+      stopFilmstripGlide();
+    };
+  }, [filmstripVisible, stopFilmstripGlide]);
 
   const lbRadialState = useMemo(() => {
     if (!lbRadial || !activeItem) return null;
@@ -1825,10 +1916,14 @@ export default function InspectModal({
       {/* Collapsible Scoped Bottom Filmstrip */}
       {cfg.filmstripOpen && !pureView && scopedItems.length > 1 && (
         <div
+          ref={filmstripBoxRef}
           className="lb-filmstrip"
           style={{ right: dest.inspectorW }}
           onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            stopFilmstripGlide();
+          }}
         >
           <div ref={filmstripRef} className="lb-filmstrip-track">
             {scopedItems.map((it, idx) => {

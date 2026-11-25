@@ -40,7 +40,7 @@ export const DEFAULT_LIGHTBOX_CFG = {
   ambientGlow: true,
   autoHideHud: true,
   filmstripOpen: false,
-  inspectorOpen: false,
+  inspectorOpen: true,
   edgePadding: 14,
   videoDefault1to1: true,
   inspectorFields: {

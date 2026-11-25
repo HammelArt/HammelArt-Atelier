@@ -15,8 +15,8 @@ from typing import Any
 REPO_SLUG = "HammelArt/HammelArt-Atelier"
 GITHUB_REPO_URL = f"https://github.com/{REPO_SLUG}"
 GITHUB_RELEASES_URL = f"{GITHUB_REPO_URL}/releases"
-GITHUB_RELEASES_API = f"https://api.github.com/repos/{REPO_SLUG}/releases?per_page=8"
-GITHUB_TAGS_API = f"https://api.github.com/repos/{REPO_SLUG}/tags?per_page=8"
+GITHUB_RELEASES_API = f"https://api.github.com/repos/{REPO_SLUG}/releases?per_page=15"
+GITHUB_TAGS_API = f"https://api.github.com/repos/{REPO_SLUG}/tags?per_page=15"
 _CACHE_TTL_SEC = 6 * 3600
 _PROTECTED_TOP_DIRS = frozenset({"userdata", "python_runtime", "node_modules", ".git"})
 _ALLOWED_ZIP_HOSTS = (
@@ -113,6 +113,61 @@ def _clear_cache(userdata_dir: str) -> None:
         pass
 
 
+def _read_local_changelog_releases(app_root: str, current_ver: str) -> list[dict[str, Any]]:
+    """Parses local CHANGELOG.md sections as offline fallback release history."""
+    changelog_path = os.path.join(app_root, "CHANGELOG.md")
+    if not os.path.isfile(changelog_path):
+        return []
+    try:
+        with open(changelog_path, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except Exception:
+        return []
+
+    heading_re = re.compile(
+        r"^##\s+\[?(v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\]?(?:\s*[-—]\s*(\d{4}-\d{2}-\d{2}))?(?:\s*[-—]\s*(.+))?$"
+    )
+    entries: list[dict[str, Any]] = []
+    cur_entry: dict[str, Any] | None = None
+    body_lines: list[str] = []
+
+    def _flush() -> None:
+        nonlocal cur_entry, body_lines
+        if cur_entry is None:
+            return
+        cur_entry["body"] = "\n".join(body_lines).strip()
+        entries.append(cur_entry)
+        cur_entry = None
+        body_lines = []
+
+    for line in raw.replace("\r\n", "\n").split("\n"):
+        m = heading_re.match(line.strip())
+        if m:
+            _flush()
+            raw_tag = m.group(1)
+            ver = normalize_version(raw_tag)
+            tag = raw_tag if raw_tag.startswith("v") else f"v{ver}"
+            date_str = (m.group(2) or "").strip()
+            title_extra = (m.group(3) or "").strip()
+            name = f"{tag} — {title_extra}" if title_extra else tag
+            cur_entry = {
+                "tag": tag,
+                "version": ver,
+                "name": name,
+                "body": "",
+                "publishedAt": f"{date_str}T00:00:00Z" if date_str else "",
+                "url": f"{GITHUB_REPO_URL}/releases/tag/{tag}",
+                "prerelease": "-" in ver,
+                "isNewer": is_newer_version(ver, current_ver),
+                "fromLocal": True,
+            }
+        elif cur_entry is not None:
+            body_lines.append(line)
+
+    _flush()
+    return entries
+
+
 def check_updates(app_root: str, userdata_dir: str, force: bool = False) -> dict[str, Any]:
     current_ver = get_local_version(app_root)
     install_mode = get_install_mode(app_root)
@@ -126,6 +181,7 @@ def check_updates(app_root: str, userdata_dir: str, force: bool = False) -> dict
             if (
                 isinstance(cached, dict)
                 and cached.get("currentVersion") == current_ver
+                and isinstance(cached.get("releases"), list)
                 and (now - int(cached.get("checkedAt") or 0)) < _CACHE_TTL_SEC
             ):
                 cached["installMode"] = install_mode
@@ -141,6 +197,7 @@ def check_updates(app_root: str, userdata_dir: str, force: bool = False) -> dict
     published_at = ""
     release_url = GITHUB_RELEASES_URL
     zip_url = f"{GITHUB_REPO_URL}/archive/refs/heads/main.zip"
+    releases_list: list[dict[str, Any]] = []
     unreachable = False
     status_note = ""
 
@@ -152,6 +209,19 @@ def check_updates(app_root: str, userdata_dir: str, force: bool = False) -> dict
         ]
         if candidates:
             candidates.sort(key=lambda r: parse_version_tuple(r.get("tag_name")), reverse=True)
+            for rel in candidates:
+                r_tag = str(rel.get("tag_name") or "")
+                r_ver = normalize_version(r_tag)
+                releases_list.append({
+                    "tag": r_tag,
+                    "version": r_ver,
+                    "name": str(rel.get("name") or r_tag),
+                    "body": str(rel.get("body") or "").strip(),
+                    "publishedAt": str(rel.get("published_at") or ""),
+                    "url": str(rel.get("html_url") or GITHUB_RELEASES_URL),
+                    "prerelease": bool(rel.get("prerelease")),
+                    "isNewer": bool(r_ver and is_newer_version(r_ver, current_ver)),
+                })
             top = candidates[0]
             latest_tag = str(top.get("tag_name") or "")
             latest_ver = normalize_version(latest_tag)
@@ -185,6 +255,17 @@ def check_updates(app_root: str, userdata_dir: str, force: bool = False) -> dict
         unreachable = True
         status_note = "Unable to reach GitHub right now (offline or timed out)."
 
+    if not releases_list:
+        local_entries = _read_local_changelog_releases(app_root, current_ver)
+        if local_entries:
+            releases_list = local_entries
+            if not patch_notes:
+                patch_notes = local_entries[0].get("body") or ""
+                if not release_name:
+                    release_name = local_entries[0].get("name") or ""
+                if not published_at:
+                    published_at = local_entries[0].get("publishedAt") or ""
+
     update_available = bool(latest_ver and is_newer_version(latest_ver, current_ver))
     if not patch_notes:
         if update_available:
@@ -199,6 +280,7 @@ def check_updates(app_root: str, userdata_dir: str, force: bool = False) -> dict
         "latestTag": latest_tag or f"v{current_ver}",
         "releaseName": release_name or f"v{current_ver}",
         "patchNotes": patch_notes,
+        "releases": releases_list,
         "publishedAt": published_at,
         "releaseUrl": release_url,
         "repoUrl": GITHUB_REPO_URL,
